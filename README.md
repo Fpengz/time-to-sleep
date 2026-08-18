@@ -67,17 +67,22 @@ retrieval time, windows, and diagnostic error code when applicable.
 
 ## Codex login setup
 
-The second Codex account uses an isolated `CODEX_HOME`. Start a browser login:
+The second Codex account uses an isolated `CODEX_HOME`. The dashboard defaults to
+device-code login so it can authenticate `wzf0513@gmail.com` independently of the
+primary browser session:
 
 ```bash
 curl -s -X POST http://127.0.0.1:4141/v1/accounts/codex-secondary/login/start \
   -H 'content-type: application/json' \
-  -d '{"method":"browser"}'
+  -d '{"method":"device_code"}'
 ```
 
-For a device-code flow, send `{"method":"device_code"}` instead. The response
-contains only the authorization URL, verification URL, user code, and attempt ID.
-Poll the attempt and cancel it when needed:
+Open the returned verification URL, sign in as `wzf0513@gmail.com`, and enter the
+returned user code. If using browser login instead, use a private window or sign
+out of the primary ChatGPT account first; otherwise the login may complete for
+`wzf5350@gmail.com` and be rejected. The response contains the authorization URL,
+verification URL, user code, and attempt ID. Poll the attempt and cancel it when
+needed:
 
 ```bash
 curl -s http://127.0.0.1:4141/v1/accounts/codex-secondary/login/<attempt_id>

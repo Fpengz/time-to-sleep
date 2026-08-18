@@ -126,6 +126,8 @@ function formatReset(timestamp) {
   if (Number.isNaN(reset.getTime())) return "Reset time unavailable";
   return `Resets ${new Intl.DateTimeFormat(undefined, {
     weekday: "short",
+    month: "short",
+    day: "numeric",
     hour: "numeric",
     minute: "2-digit",
   }).format(reset)}`;
@@ -152,11 +154,21 @@ function renderSummary() {
   const live = state.snapshots.filter((item) => item.status === "live").length;
   const attention = state.snapshots.filter((item) => ["cached", "stale"].includes(item.status)).length;
   const unavailable = state.snapshots.filter((item) => item.status === "unavailable").length;
-  const nextReset = state.snapshots.flatMap((item) => item.windows || []).map((window) => window.resets_at).filter(Boolean).sort()[0];
+  const resetCandidates = state.snapshots
+    .flatMap((snapshot) => (snapshot.windows || []).map((window) => ({ snapshot, window })))
+    .filter((candidate) => Number.isFinite(Date.parse(candidate.window.resets_at)));
+  resetCandidates.sort((left, right) => Date.parse(left.window.resets_at) - Date.parse(right.window.resets_at));
+  const nextReset = resetCandidates[0] || null;
   const cards = [
     ["Healthy now", live, live === 1 ? "account reporting live" : "accounts reporting live"],
     ["Needs a look", attention, attention ? "cached or stale data" : "no stale snapshots"],
-    ["Next reset", nextReset ? formatReset(nextReset).replace("Resets ", "") : "—", nextReset ? "earliest known window" : "no reset reported"],
+    [
+      "Next reset",
+      nextReset ? formatReset(nextReset.window.resets_at).replace("Resets ", "") : "—",
+      nextReset
+        ? `${accountLabel(nextReset.snapshot)} · ${formatWindow(nextReset.window.id)}`
+        : "no reset reported",
+    ],
   ];
   for (const [label, value, detail] of cards) {
     const card = element("div", { className: "summary-card" });
@@ -273,7 +285,7 @@ function renderSetup() {
   const setup = state.setup;
   const title = element("div", { className: "setup-heading" });
   const titleCopy = element("div");
-  append(titleCopy, element("p", { className: "eyebrow", text: "Account setup" }), element("h2", { id: "setup-title", text: "Connect Codex" }), element("p", { className: "setup-copy", text: `Finish the sign-in for ${setup.accountId}. This session uses its isolated profile.` }));
+  append(titleCopy, element("p", { className: "eyebrow", text: "Account setup" }), element("h2", { id: "setup-title", text: "Connect Codex" }), element("p", { className: "setup-copy", text: `Finish the sign-in for ${setup.email || setup.accountId}. Use a private window or device code if another ChatGPT account is active.` }));
   const close = element("button", { className: "icon-button setup-close", text: "×", attributes: { type: "button", "aria-label": "Close account setup" } });
   close.addEventListener("click", () => {
     stopLoginPolling();
@@ -304,7 +316,13 @@ function renderSetup() {
 
   if (setup.challenge) {
     const challenge = element("div", { className: "setup-challenge" });
-    append(challenge, element("p", { className: "setup-status", text: setupStatusMessage(setup.status) }));
+    const statusClass = ["failed", "expired", "error"].includes(setup.status)
+      ? "setup-status setup-status-error"
+      : "setup-status";
+    append(challenge, element("p", {
+      className: statusClass,
+      text: setup.message || setupStatusMessage(setup.status),
+    }));
     if (setup.challenge.auth_url) {
       const link = element("a", { className: "setup-link", text: "Open authorization page ↗", attributes: { href: setup.challenge.auth_url, target: "_blank", rel: "noreferrer" } });
       challenge.append(link);
@@ -326,7 +344,18 @@ function renderSetup() {
 
 function openSetup(accountId) {
   stopLoginPolling();
-  state.setup = { accountId, method: "browser", attemptId: null, challenge: null, status: "idle", pollTimer: null, error: null };
+  const account = state.snapshots.find((snapshot) => snapshot.account_id === accountId);
+  state.setup = {
+    accountId,
+    email: account?.configured_email || accountId,
+    method: "device_code",
+    attemptId: null,
+    challenge: null,
+    status: "idle",
+    pollTimer: null,
+    error: null,
+    message: null,
+  };
   renderSetup();
   select("#setup-panel")?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "nearest" });
   select("#setup-method")?.focus();
@@ -337,6 +366,7 @@ async function startLogin() {
   const setup = state.setup;
   setup.status = "starting";
   setup.error = null;
+  setup.message = null;
   renderSetup();
   try {
     const challenge = await getJson(`/v1/accounts/${setup.accountId}/login/start`, {
@@ -362,6 +392,7 @@ async function pollLogin(accountId, attemptId) {
     const attempt = await getJson(`/v1/accounts/${accountId}/login/${attemptId}`);
     if (!state.setup || state.setup.attemptId !== attemptId) return;
     state.setup.status = attempt.status;
+    state.setup.message = attempt.message || null;
     renderSetup();
     if (attempt.status === "pending") {
       state.setup.pollTimer = setTimeout(() => pollLogin(accountId, attemptId), 2000);

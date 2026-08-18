@@ -42,7 +42,13 @@ def assert_setup_flow(browser: Browser) -> None:
             "source": "test",
             "observed_at": "2026-08-18T00:00:00Z",
             "retrieved_at": "2026-08-18T00:00:00Z",
-            "windows": [{"id": "primary", "used_percent": 18}],
+            "windows": [
+                {
+                    "id": "primary",
+                    "used_percent": 18,
+                    "resets_at": "2026-08-21T12:00:00Z",
+                }
+            ],
         },
         {
             "account_id": "codex-secondary",
@@ -64,7 +70,13 @@ def assert_setup_flow(browser: Browser) -> None:
             "source": "test",
             "observed_at": "2026-08-18T00:00:00Z",
             "retrieved_at": "2026-08-18T00:00:00Z",
-            "windows": [{"id": "five_hour", "used_percent": 51}],
+            "windows": [
+                {
+                    "id": "five_hour",
+                    "used_percent": 51,
+                    "resets_at": "2026-08-20T12:00:00Z",
+                }
+            ],
         },
         {
             "account_id": "antigravity",
@@ -121,8 +133,13 @@ def assert_setup_flow(browser: Browser) -> None:
     )
     page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30_000)
     page.wait_for_load_state("networkidle", timeout=10_000)
+    next_reset = page.locator(".summary-card").filter(has_text="Next reset")
+    assert "Claude Code" in (next_reset.inner_text())
+    assert "Five Hour" in (next_reset.inner_text())
     assert page.get_by_role("button", name="Retry usage").count() == 2
     page.get_by_role("button", name="Retry login").click()
+    assert "secondary@example.com" in page.locator("#setup-panel").inner_text()
+    assert page.locator("#setup-method").input_value() == "device_code"
     page.select_option("#setup-method", "device_code")
     page.get_by_role("button", name="Start login").click()
     page.get_by_text("ABCD-EFGH").wait_for(state="visible", timeout=5_000)

@@ -297,6 +297,7 @@ async def test_login_service_rejects_identity_mismatch(tmp_path: Path) -> None:
     attempt = await service.status(account_config.id, challenge.attempt_id)
     assert attempt.status == "failed"
     assert attempt.observed_email == "wrong@example.com"
+    assert attempt.message == ("Codex completed for wrong@example.com; expected wzf0513@gmail.com.")
     assert transport.closed
 
 

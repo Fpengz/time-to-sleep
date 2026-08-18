@@ -301,7 +301,10 @@ class LoginService:
                     update={
                         "status": "failed",
                         "observed_email": observed_email,
-                        "message": "Codex login completed for a different account.",
+                        "message": (
+                            f"Codex completed for {observed_email or 'an unknown account'}; "
+                            f"expected {account.email}."
+                        ),
                     }
                 )
         except TimeoutError:
