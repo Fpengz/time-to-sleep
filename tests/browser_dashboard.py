@@ -48,13 +48,13 @@ def assert_setup_flow(browser: Browser) -> None:
             "account_id": "codex-secondary",
             "provider": "codex",
             "configured_email": "secondary@example.com",
-            "status": "unavailable",
+            "status": "cached",
             "source": "test",
-            "observed_at": None,
+            "observed_at": "2026-08-17T00:00:00Z",
             "retrieved_at": "2026-08-18T00:00:00Z",
-            "windows": [],
-            "message": "Codex home is not configured.",
-            "error_code": "not_configured",
+            "windows": [{"id": "primary", "used_percent": 42}],
+            "message": "The provider could not be queried.",
+            "error_code": "not_authenticated",
         },
         {
             "account_id": "claude",
@@ -121,7 +121,8 @@ def assert_setup_flow(browser: Browser) -> None:
     )
     page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30_000)
     page.wait_for_load_state("networkidle", timeout=10_000)
-    page.get_by_role("button", name="Set up account").click()
+    assert page.get_by_role("button", name="Retry usage").count() == 2
+    page.get_by_role("button", name="Retry login").click()
     page.select_option("#setup-method", "device_code")
     page.get_by_role("button", name="Start login").click()
     page.get_by_text("ABCD-EFGH").wait_for(state="visible", timeout=5_000)

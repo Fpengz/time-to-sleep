@@ -97,6 +97,26 @@ async def test_codex_adapter_marks_identity_mismatch_without_returning_live_data
 
 
 @pytest.mark.asyncio
+async def test_codex_adapter_handles_missing_account_payload(tmp_path: Path) -> None:
+    transport = FakeTransport(
+        {
+            "initialize": {"id": 1, "result": {}},
+            "account/read": {"id": 2, "result": {"account": None}},
+            "account/rateLimits/read": {"id": 3, "result": {"rateLimits": {}}},
+        }
+    )
+
+    async def factory(_: AccountConfig) -> FakeTransport:
+        return transport
+
+    snapshot = await CodexProvider(transport_factory=factory).fetch(account(str(tmp_path)))
+
+    assert snapshot.status is AccountStatus.UNAVAILABLE
+    assert snapshot.error_code is ErrorCode.NOT_AUTHENTICATED
+    assert snapshot.windows == []
+
+
+@pytest.mark.asyncio
 async def test_codex_adapter_uses_rollout_snapshot_when_live_transport_fails(
     tmp_path: Path,
 ) -> None:

@@ -214,6 +214,21 @@ class ClaudeProvider:
             if retrieved_at - parsed.observed_at <= _FALLBACK_MAX_AGE
             else AccountStatus.STALE
         )
+        if status is AccountStatus.STALE:
+            return UsageSnapshot(
+                account_id=account.id,
+                provider=account.provider,
+                configured_email=account.email,
+                observed_email=account.email,
+                status=AccountStatus.UNAVAILABLE,
+                source="claude_plan_history",
+                observed_at=parsed.observed_at,
+                retrieved_at=retrieved_at,
+                message=(
+                    f"{message}; latest local sample is stale ({parsed.observed_at.isoformat()})"
+                ),
+                error_code=ErrorCode.NO_RECENT_DATA,
+            )
         return UsageSnapshot(
             account_id=account.id,
             provider=account.provider,

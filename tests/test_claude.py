@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import httpx
@@ -83,3 +83,27 @@ async def test_claude_provider_classifies_rate_limit_without_fabricating_usage(
     assert snapshot.status is AccountStatus.UNAVAILABLE
     assert snapshot.error_code is ErrorCode.RATE_LIMITED
     assert snapshot.windows == []
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_claude_provider_does_not_present_old_history_as_current_usage(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "test-token")
+    observed_at = int((datetime.now(UTC) - timedelta(days=2)).timestamp() * 1000)
+    (tmp_path / "plan-usage-history.json").write_text(
+        f'{{"version":2,"samples":[{{"t":{observed_at},"u":{{"fh":51,"sd":25}}}}]}}',
+        encoding="utf-8",
+    )
+    respx.get("https://api.anthropic.com/api/oauth/usage").mock(
+        return_value=httpx.Response(429, json={"error": {"message": "slow down"}})
+    )
+
+    snapshot = await ClaudeProvider(include_desktop_history=False).fetch(account(str(tmp_path)))
+
+    assert snapshot.status is AccountStatus.UNAVAILABLE
+    assert snapshot.source == "claude_plan_history"
+    assert snapshot.error_code is ErrorCode.NO_RECENT_DATA
+    assert snapshot.windows == []
+    assert "stale" in (snapshot.message or "").lower()

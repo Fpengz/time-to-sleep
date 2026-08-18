@@ -207,9 +207,21 @@ function renderAccount(snapshot) {
 
   if (snapshot.message) card.append(element("p", { className: "account-message", text: snapshot.message }));
   if (snapshot.error_code) card.append(element("p", { className: "account-error", text: snapshot.error_code.replaceAll("_", " ") }));
-  if (snapshot.status === "unavailable" && snapshot.provider === "codex") {
-    const action = element("button", { className: "button button-action", text: "Set up account", attributes: { type: "button" } });
-    action.addEventListener("click", () => openSetup(snapshot.account_id));
+  if (snapshot.status !== "live") {
+    const isCodex = snapshot.provider === "codex";
+    const action = element("button", {
+      className: "button button-action",
+      text: isCodex
+        ? snapshot.status === "unavailable"
+          ? "Set up account"
+          : "Retry login"
+        : "Retry usage",
+      attributes: { type: "button" },
+    });
+    action.addEventListener("click", () => {
+      if (isCodex) openSetup(snapshot.account_id);
+      else void refresh(true);
+    });
     card.append(action);
   }
   return card;

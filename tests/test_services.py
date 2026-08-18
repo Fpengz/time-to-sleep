@@ -57,14 +57,17 @@ class FakeLoginTransport:
         self.observed_email = observed_email
         self.events: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         self.login_types: list[str] = []
+        self.requests: list[tuple[str, dict[str, Any] | None]] = []
         self.closed = False
 
     async def request(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        self.requests.append((method, params))
         if method == "account/login/start":
             assert params is not None
             self.login_types.append(params["type"])
             return {
                 "result": {
+                    "loginId": "codex-login-1",
                     "authUrl": "https://auth.example.test/start",
                     "verificationUrl": "https://auth.example.test/verify",
                     "userCode": "ABCD-EFGH",
@@ -212,12 +215,64 @@ async def test_login_service_verifies_email_after_completion(tmp_path: Path) -> 
 
     service = LoginService(Settings(accounts=[account_config]), transport_factory=factory)
     challenge = await service.start(account_config.id, "browser")
-    await transport.events.put({"method": "account/login/completed", "params": {}})
+    await transport.events.put(
+        {
+            "method": "account/login/completed",
+            "params": {"loginId": "codex-login-1", "success": True},
+        }
+    )
     await asyncio.sleep(0.01)
 
     attempt = await service.status(account_config.id, challenge.attempt_id)
     assert attempt.status == "succeeded"
     assert attempt.observed_email == account_config.email
+    assert transport.closed
+
+
+@pytest.mark.asyncio
+async def test_login_service_preserves_codex_completion_error(tmp_path: Path) -> None:
+    account_config = login_account(tmp_path / "secondary")
+    transport = FakeLoginTransport(account_config.email)
+
+    async def factory(_: AccountConfig) -> FakeLoginTransport:
+        return transport
+
+    service = LoginService(Settings(accounts=[account_config]), transport_factory=factory)
+    challenge = await service.start(account_config.id, "browser")
+    await transport.events.put(
+        {
+            "method": "account/login/completed",
+            "params": {
+                "loginId": "codex-login-1",
+                "success": False,
+                "error": "The account was not authorized.",
+            },
+        }
+    )
+    await asyncio.sleep(0.01)
+
+    attempt = await service.status(account_config.id, challenge.attempt_id)
+    assert attempt.status == "failed"
+    assert attempt.message == "The account was not authorized."
+    assert not any(method == "account/read" for method, _ in transport.requests)
+    assert transport.closed
+
+
+@pytest.mark.asyncio
+async def test_login_service_cancels_codex_login_at_provider(tmp_path: Path) -> None:
+    account_config = login_account(tmp_path / "secondary")
+    transport = FakeLoginTransport(account_config.email)
+
+    async def factory(_: AccountConfig) -> FakeLoginTransport:
+        return transport
+
+    service = LoginService(Settings(accounts=[account_config]), transport_factory=factory)
+    challenge = await service.start(account_config.id, "device_code")
+
+    attempt = await service.cancel(account_config.id, challenge.attempt_id)
+
+    assert attempt.status == "cancelled"
+    assert ("account/login/cancel", {"loginId": "codex-login-1"}) in transport.requests
     assert transport.closed
 
 
@@ -231,7 +286,12 @@ async def test_login_service_rejects_identity_mismatch(tmp_path: Path) -> None:
 
     service = LoginService(Settings(accounts=[account_config]), transport_factory=factory)
     challenge = await service.start(account_config.id, "browser")
-    await transport.events.put({"method": "account/login/completed", "params": {}})
+    await transport.events.put(
+        {
+            "method": "account/login/completed",
+            "params": {"loginId": "codex-login-1", "success": True},
+        }
+    )
     await asyncio.sleep(0.01)
 
     attempt = await service.status(account_config.id, challenge.attempt_id)

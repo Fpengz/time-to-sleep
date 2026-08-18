@@ -35,6 +35,14 @@ class CodexLoginChallenge:
     auth_url: str | None = None
     verification_url: str | None = None
     user_code: str | None = None
+    login_id: str | None = None
+
+
+@dataclass(frozen=True)
+class CodexLoginCompletion:
+    login_id: str | None
+    success: bool
+    error: str | None = None
 
 
 class CodexRpcError(RuntimeError):
@@ -152,8 +160,18 @@ class CodexProvider:
             )
             await transport.notify("initialized")
             account_response = await transport.request("account/read", {"refreshToken": False})
-            account_data = account_response.get("result", {}).get("account", {})
-            observed_email = account_data.get("email")
+            account_result = account_response.get("result")
+            account_data = (
+                account_result.get("account") if isinstance(account_result, dict) else None
+            )
+            if not isinstance(account_data, dict):
+                return self._unavailable(
+                    account,
+                    retrieved_at,
+                    ErrorCode.NOT_AUTHENTICATED,
+                    "Codex did not return an authenticated account",
+                )
+            observed_email = _optional_text(account_data.get("email"))
             if observed_email != account.email:
                 return self._unavailable(
                     account,
@@ -303,6 +321,7 @@ class CodexLoginSession:
         self.command = command
         self.transport_factory = transport_factory
         self.transport: CodexLoginTransport | None = None
+        self.login_id: str | None = None
 
     async def start(self, account: AccountConfig, method: str) -> CodexLoginChallenge:
         if method not in {"browser", "device_code"}:
@@ -327,27 +346,47 @@ class CodexLoginSession:
             result = response.get("result", {})
             if not isinstance(result, dict):
                 raise CodexRpcError("Codex returned an invalid login challenge")
+            self.login_id = _optional_text(result.get("loginId"))
             return CodexLoginChallenge(
                 auth_url=_optional_text(result.get("authUrl")),
                 verification_url=_optional_text(result.get("verificationUrl")),
                 user_code=_optional_text(result.get("userCode")),
+                login_id=self.login_id,
             )
         except Exception:
             await self.close()
             raise
 
-    async def wait_for_completion(self) -> None:
+    async def wait_for_completion(self) -> CodexLoginCompletion:
         if self.transport is None:
             raise CodexRpcError("Codex login session has not started")
         while True:
             message = await self.transport.next_message()
             if message.get("method") == "account/login/completed":
-                return
+                params = message.get("params")
+                if not isinstance(params, dict):
+                    raise CodexRpcError("Codex returned an invalid login completion")
+                message_login_id = _optional_text(params.get("loginId"))
+                if self.login_id is not None and message_login_id not in {
+                    None,
+                    self.login_id,
+                }:
+                    continue
+                return CodexLoginCompletion(
+                    login_id=message_login_id,
+                    success=params.get("success") is True,
+                    error=_optional_text(params.get("error")),
+                )
+
+    async def cancel(self) -> None:
+        if self.transport is None or self.login_id is None:
+            return
+        await self.transport.request("account/login/cancel", {"loginId": self.login_id})
 
     async def account_email(self) -> str | None:
         if self.transport is None:
             raise CodexRpcError("Codex login session has not started")
-        response = await self.transport.request("account/read", {"refreshToken": False})
+        response = await self.transport.request("account/read", {"refreshToken": True})
         account_data = response.get("result", {}).get("account", {})
         if not isinstance(account_data, dict):
             return None

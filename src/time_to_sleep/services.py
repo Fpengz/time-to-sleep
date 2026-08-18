@@ -176,9 +176,12 @@ class UsageService:
 
 
 class _LoginRecord:
-    def __init__(self, attempt: LoginAttempt, session: CodexLoginSession) -> None:
+    def __init__(
+        self, attempt: LoginAttempt, session: CodexLoginSession, login_id: str | None
+    ) -> None:
         self.attempt = attempt
         self.session = session
+        self.login_id = login_id
         self.task: asyncio.Task[None] | None = None
 
 
@@ -228,6 +231,7 @@ class LoginService:
                 expires_at=expires_at,
             ),
             session,
+            prompt.login_id,
         )
         self._records[(account.id, attempt_id)] = record
         record.task = asyncio.create_task(self._monitor(record, account))
@@ -252,6 +256,8 @@ class LoginService:
             record.attempt = record.attempt.model_copy(
                 update={"status": "cancelled", "message": "Login cancelled."}
             )
+            with suppress(Exception):
+                await record.session.cancel()
             await self._stop(record)
         return record.attempt
 
@@ -270,7 +276,17 @@ class LoginService:
     async def _monitor(self, record: _LoginRecord, account: AccountConfig) -> None:
         try:
             timeout = max((record.attempt.expires_at - self._now()).total_seconds(), 0.0)
-            await asyncio.wait_for(record.session.wait_for_completion(), timeout=timeout)
+            completion = await asyncio.wait_for(
+                record.session.wait_for_completion(), timeout=timeout
+            )
+            if not completion.success:
+                record.attempt = record.attempt.model_copy(
+                    update={
+                        "status": "failed",
+                        "message": completion.error or "Codex login was not completed.",
+                    }
+                )
+                return
             observed_email = await record.session.account_email()
             if observed_email == account.email:
                 record.attempt = record.attempt.model_copy(
