@@ -5,6 +5,7 @@ const state = {
   loading: false,
   theme: document.documentElement.dataset.theme || "light",
   loadError: null,
+  setup: null,
 };
 
 const providerLabels = {
@@ -231,9 +232,165 @@ function renderAccounts() {
   state.snapshots.forEach((snapshot) => list.append(renderAccount(snapshot)));
 }
 
+function stopLoginPolling() {
+  if (state.setup?.pollTimer) clearTimeout(state.setup.pollTimer);
+  if (state.setup) state.setup.pollTimer = null;
+}
+
+function setupStatusMessage(status) {
+  return {
+    starting: "Opening an isolated Codex session…",
+    pending: "Waiting for Codex to confirm the login…",
+    succeeded: "Login verified for the configured account.",
+    failed: "Codex completed, but the account identity did not match.",
+    cancelled: "Login setup cancelled.",
+    expired: "This login attempt expired. Start a new one when ready.",
+    error: "The login session could not be started.",
+  }[status] || "Choose a login method to begin.";
+}
+
+function renderSetup() {
+  const panel = select("#setup-panel");
+  if (!panel) return;
+  panel.replaceChildren();
+  if (!state.setup) {
+    panel.hidden = true;
+    return;
+  }
+  panel.hidden = false;
+  const setup = state.setup;
+  const title = element("div", { className: "setup-heading" });
+  const titleCopy = element("div");
+  append(titleCopy, element("p", { className: "eyebrow", text: "Account setup" }), element("h2", { id: "setup-title", text: "Connect Codex" }), element("p", { className: "setup-copy", text: `Finish the sign-in for ${setup.accountId}. This session uses its isolated profile.` }));
+  const close = element("button", { className: "icon-button setup-close", text: "×", attributes: { type: "button", "aria-label": "Close account setup" } });
+  close.addEventListener("click", () => {
+    stopLoginPolling();
+    state.setup = null;
+    renderSetup();
+  });
+  append(title, titleCopy, close);
+  panel.append(title);
+
+  const controls = element("div", { className: "setup-controls" });
+  const methodField = element("label", { className: "setup-field" });
+  append(methodField, element("span", { text: "Sign-in method" }));
+  const method = element("select", { attributes: { id: "setup-method", name: "method" } });
+  const browserOption = element("option", { text: "Browser sign-in", attributes: { value: "browser" } });
+  const deviceOption = element("option", { text: "Device code", attributes: { value: "device_code" } });
+  method.append(browserOption, deviceOption);
+  method.value = setup.method;
+  method.disabled = ["starting", "pending"].includes(setup.status);
+  method.addEventListener("change", () => { state.setup.method = method.value; });
+  methodField.append(method);
+  const start = element("button", { className: "button button-action", text: setup.status === "starting" ? "Starting…" : setup.status === "pending" ? "Waiting…" : "Start login", attributes: { type: "button" } });
+  start.disabled = ["starting", "pending"].includes(setup.status);
+  start.addEventListener("click", startLogin);
+  const cancel = element("button", { className: "button button-secondary", text: setup.attemptId && setup.status === "pending" ? "Cancel attempt" : "Close", attributes: { type: "button" } });
+  cancel.addEventListener("click", cancelSetup);
+  append(controls, methodField, start, cancel);
+  panel.append(controls);
+
+  if (setup.challenge) {
+    const challenge = element("div", { className: "setup-challenge" });
+    append(challenge, element("p", { className: "setup-status", text: setupStatusMessage(setup.status) }));
+    if (setup.challenge.auth_url) {
+      const link = element("a", { className: "setup-link", text: "Open authorization page ↗", attributes: { href: setup.challenge.auth_url, target: "_blank", rel: "noreferrer" } });
+      challenge.append(link);
+    }
+    if (setup.challenge.verification_url) {
+      const link = element("a", { className: "setup-link", text: "Open verification page ↗", attributes: { href: setup.challenge.verification_url, target: "_blank", rel: "noreferrer" } });
+      challenge.append(link);
+    }
+    if (setup.challenge.user_code) {
+      const code = element("p", { className: "setup-code-label", text: "Your device code" });
+      const codeValue = element("code", { className: "setup-code", text: setup.challenge.user_code });
+      append(challenge, code, codeValue);
+    }
+    panel.append(challenge);
+  } else if (setup.status === "error") {
+    panel.append(element("p", { className: "setup-status setup-status-error", text: setup.error || setupStatusMessage(setup.status) }));
+  }
+}
+
+function openSetup(accountId) {
+  stopLoginPolling();
+  state.setup = { accountId, method: "browser", attemptId: null, challenge: null, status: "idle", pollTimer: null, error: null };
+  renderSetup();
+  select("#setup-panel")?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "nearest" });
+  select("#setup-method")?.focus();
+}
+
+async function startLogin() {
+  if (!state.setup || ["starting", "pending"].includes(state.setup.status)) return;
+  const setup = state.setup;
+  setup.status = "starting";
+  setup.error = null;
+  renderSetup();
+  try {
+    const challenge = await getJson(`/v1/accounts/${setup.accountId}/login/start`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ method: setup.method }),
+    });
+    setup.attemptId = challenge.attempt_id;
+    setup.challenge = challenge;
+    setup.status = "pending";
+    renderSetup();
+    await pollLogin(setup.accountId, setup.attemptId);
+  } catch (error) {
+    setup.status = "error";
+    setup.error = error.message;
+    renderSetup();
+  }
+}
+
+async function pollLogin(accountId, attemptId) {
+  if (!state.setup || state.setup.attemptId !== attemptId) return;
+  try {
+    const attempt = await getJson(`/v1/accounts/${accountId}/login/${attemptId}`);
+    if (!state.setup || state.setup.attemptId !== attemptId) return;
+    state.setup.status = attempt.status;
+    renderSetup();
+    if (attempt.status === "pending") {
+      state.setup.pollTimer = setTimeout(() => pollLogin(accountId, attemptId), 2000);
+      return;
+    }
+    if (select("#live-announcement")) select("#live-announcement").textContent = setupStatusMessage(attempt.status);
+    if (attempt.status === "succeeded") await refresh();
+  } catch (error) {
+    if (!state.setup || state.setup.attemptId !== attemptId) return;
+    state.setup.status = "error";
+    state.setup.error = error.message;
+    renderSetup();
+  }
+}
+
+async function cancelSetup() {
+  if (!state.setup) return;
+  if (!state.setup.attemptId || state.setup.status !== "pending") {
+    stopLoginPolling();
+    state.setup = null;
+    renderSetup();
+    return;
+  }
+  const setup = state.setup;
+  stopLoginPolling();
+  try {
+    await getJson(`/v1/accounts/${setup.accountId}/login/${setup.attemptId}/cancel`, { method: "POST" });
+    setup.status = "cancelled";
+    renderSetup();
+    if (select("#live-announcement")) select("#live-announcement").textContent = setupStatusMessage(setup.status);
+  } catch (error) {
+    setup.status = "error";
+    setup.error = error.message;
+    renderSetup();
+  }
+}
+
 function render() {
   renderSummary();
   renderAccounts();
+  renderSetup();
 }
 
 function updateTimestamp(generatedAt) {
