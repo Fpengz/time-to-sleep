@@ -1,8 +1,26 @@
-.venv/
+# Dependencies
 node_modules/
+.venv/
+
+# Build output
+dist/
+
+# Python caches and tooling
 __pycache__/
 *.py[cod]
 .pytest_cache/
 .ruff_cache/
 .ty/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Logs and local tool state
+*.log
+.vite/
+
+# Operating-system files
 .DS_Store
+Thumbs.db
