@@ -8,6 +8,7 @@ from uuid import uuid4
 from time_to_sleep.domain import (
     AccountConfig,
     AccountStatus,
+    AccountStatusView,
     ErrorCode,
     LoginAttempt,
     LoginChallenge,
@@ -78,6 +79,27 @@ class UsageService:
             )
         )
         return list(results)
+
+    async def account_statuses(self) -> list[AccountStatusView]:
+        return [await self.account_status(account.id) for account in self.settings.accounts]
+
+    async def account_status(self, account_id: str) -> AccountStatusView:
+        account = next((item for item in self.settings.accounts if item.id == account_id), None)
+        if account is None:
+            raise KeyError(account_id)
+        cached = self.cache.get(account.id)
+        ready = Path(account.expanded_home).exists()
+        if cached is not None:
+            ready = cached.status is not AccountStatus.UNAVAILABLE
+        return AccountStatusView(
+            account_id=account.id,
+            provider=account.provider,
+            configured_email=account.email,
+            configured_home=account.home,
+            ready=ready,
+            observed_email=cached.observed_email if cached is not None else None,
+            message=cached.message if cached is not None else None,
+        )
 
     async def _collect_one(self, account: AccountConfig, *, force_refresh: bool) -> UsageSnapshot:
         now = self._now()
