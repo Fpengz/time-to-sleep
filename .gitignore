@@ -1,18 +1,7 @@
-# Dependencies
-node_modules/
-
-# Build output
-dist/
-
-# Local environment and secrets
-.env
-.env.*
-!.env.example
-
-# Logs and local tool state
-*.log
-.vite/
-
-# Operating-system files
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.ty/
 .DS_Store
-Thumbs.db
