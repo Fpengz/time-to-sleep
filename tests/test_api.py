@@ -207,3 +207,19 @@ def test_unknown_account_and_attempt_return_not_found(
 
     assert unknown_account.status_code == 404
     assert unknown_attempt.status_code == 404
+
+
+def test_root_serves_dashboard() -> None:
+    response = TestClient(app).get("/")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert "Time-to-Sleep" in response.text
+    assert "/static/app.js" in response.text
+
+
+def test_static_stylesheet_is_served() -> None:
+    response = TestClient(app).get("/static/styles.css")
+
+    assert response.status_code == 200
+    assert "--bg:" in response.text

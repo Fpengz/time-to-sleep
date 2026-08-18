@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#101615">
+    <title>Time-to-Sleep · Usage observatory</title>
+    <script>
+      (() => {
+        const saved = localStorage.getItem("time-to-sleep-theme");
+        const system = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        document.documentElement.dataset.theme = saved || system;
+      })();
+    </script>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="site-header">
+        <a class="brand" href="/" aria-label="Time-to-Sleep home">
+          <span class="brand-mark" aria-hidden="true">TS</span>
+          <span>time-to-sleep</span>
+        </a>
+        <div class="header-actions">
+          <time id="last-updated" datetime="">Waiting for first sync</time>
+          <button id="theme-toggle" class="icon-button" type="button" aria-label="Switch color theme">
+            <span aria-hidden="true">◐</span>
+          </button>
+          <button id="refresh-button" class="button button-secondary" type="button">Refresh usage</button>
+        </div>
+      </header>
+
+      <main>
+        <section class="hero" aria-labelledby="page-title">
+          <p class="eyebrow">Local provider observatory <span class="eyebrow-dot" aria-hidden="true"></span></p>
+          <div class="hero-row">
+            <div>
+              <h1 id="page-title">Usage, at a glance.</h1>
+              <p class="hero-copy">A quiet read on the accounts that keep your work moving.</p>
+            </div>
+            <p class="sync-note">Loopback only<br><span>no credentials leave this machine</span></p>
+          </div>
+        </section>
+
+        <p id="live-announcement" class="sr-only" aria-live="polite"></p>
+        <section id="summary" class="summary-grid" aria-label="Usage summary"></section>
+
+        <section class="accounts-section" aria-labelledby="accounts-title">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Provider status</p>
+              <h2 id="accounts-title">Your accounts</h2>
+            </div>
+            <span class="section-caption">Normalized usage windows</span>
+          </div>
+          <section id="account-list" class="account-list" aria-label="Provider usage">
+            <div class="loading-state" role="status"><span class="loading-line"></span><span class="loading-line short"></span></div>
+          </section>
+        </section>
+
+        <section id="setup-panel" class="setup-panel" hidden aria-labelledby="setup-title"></section>
+      </main>
+
+      <footer class="site-footer">
+        <span>Time-to-Sleep</span>
+        <span>FastAPI · local usage retrieval</span>
+      </footer>
+    </div>
+    <script src="/static/app.js" defer></script>
+  </body>
+</html>

@@ -1,7 +1,10 @@
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from time_to_sleep import __version__
@@ -19,6 +22,8 @@ from time_to_sleep.providers.codex import CodexProvider
 from time_to_sleep.services import LoginService, ProviderRegistry, UsageService
 
 app = FastAPI(title="Time-to-Sleep Usage Backend", version=__version__)
+STATIC_DIR = Path(__file__).parent / "static"
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 def _build_services() -> tuple[Settings, UsageService, LoginService]:
@@ -50,6 +55,11 @@ def get_login_service() -> LoginService:
 
 class LoginStartRequest(BaseModel):
     method: Literal["browser", "device_code"]
+
+
+@app.get("/", include_in_schema=False)
+async def dashboard() -> FileResponse:
+    return FileResponse(STATIC_DIR / "index.html")
 
 
 @app.get("/health")
