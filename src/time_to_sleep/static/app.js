@@ -1,4 +1,277 @@
+const THEME_KEY = "time-to-sleep-theme";
+const state = {
+  snapshots: [],
+  accounts: [],
+  loading: false,
+  theme: document.documentElement.dataset.theme || "light",
+  loadError: null,
+};
+
+const providerLabels = {
+  codex: "Codex",
+  claude: "Claude Code",
+  antigravity: "Antigravity",
+};
+
+function select(selector) {
+  return document.querySelector(selector);
+}
+
+function element(tag, options = {}) {
+  const node = document.createElement(tag);
+  if (options.className) node.className = options.className;
+  if (options.text !== undefined) node.textContent = options.text;
+  for (const [name, value] of Object.entries(options.attributes || {})) {
+    node.setAttribute(name, value);
+  }
+  return node;
+}
+
+function append(parent, ...children) {
+  for (const child of children) {
+    if (child) parent.append(child);
+  }
+  return parent;
+}
+
+async function getJson(url, options) {
+  const response = await fetch(url, options);
+  if (!response.ok) {
+    let detail = `Request failed (${response.status})`;
+    try {
+      const body = await response.json();
+      if (typeof body.detail === "string") detail = body.detail;
+    } catch {
+      // Keep the status-based message when the response is not JSON.
+    }
+    throw new Error(detail);
+  }
+  return response.json();
+}
+
+async function loadUsage(forceRefresh = false) {
+  const suffix = forceRefresh ? "?force_refresh=true" : "";
+  return getJson(`/v1/usage${suffix}`);
+}
+
+async function loadAccounts() {
+  return getJson("/v1/accounts");
+}
+
+function systemTheme() {
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+function applyTheme(theme, persist = false) {
+  state.theme = theme;
+  document.documentElement.dataset.theme = theme;
+  if (persist) localStorage.setItem(THEME_KEY, theme);
+  const toggle = select("#theme-toggle");
+  if (!toggle) return;
+  const next = theme === "dark" ? "light" : "dark";
+  toggle.setAttribute("aria-label", `Switch to ${next} theme`);
+  toggle.setAttribute("title", `Switch to ${next} theme`);
+  const icon = toggle.querySelector("span");
+  if (icon) icon.textContent = theme === "dark" ? "☼" : "◐";
+}
+
+function initializeTheme() {
+  const saved = localStorage.getItem(THEME_KEY);
+  applyTheme(saved || document.documentElement.dataset.theme || systemTheme());
+  const media = window.matchMedia("(prefers-color-scheme: dark)");
+  const onSystemChange = () => {
+    if (!localStorage.getItem(THEME_KEY)) applyTheme(systemTheme());
+  };
+  if (media.addEventListener) media.addEventListener("change", onSystemChange);
+  else media.addListener(onSystemChange);
+  select("#theme-toggle")?.addEventListener("click", () => {
+    applyTheme(state.theme === "dark" ? "light" : "dark", true);
+  });
+}
+
+function providerLabel(provider) {
+  return providerLabels[provider] || provider;
+}
+
+function accountLabel(snapshot) {
+  if (snapshot.account_id === "codex-primary") return "Codex · primary";
+  if (snapshot.account_id === "codex-secondary") return "Codex · second account";
+  return providerLabel(snapshot.provider);
+}
+
+function statusLabel(status) {
+  return {
+    live: "Live",
+    cached: "Cached",
+    stale: "Stale",
+    unavailable: "Unavailable",
+  }[status] || "Unknown";
+}
+
+function formatAge(timestamp) {
+  if (!timestamp) return "No observation";
+  const ageMs = Math.max(0, Date.now() - new Date(timestamp).getTime());
+  const minutes = Math.floor(ageMs / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hr ago`;
+  return `${Math.floor(hours / 24)} days ago`;
+}
+
+function formatReset(timestamp) {
+  if (!timestamp) return "Reset time unavailable";
+  const reset = new Date(timestamp);
+  if (Number.isNaN(reset.getTime())) return "Reset time unavailable";
+  return `Resets ${new Intl.DateTimeFormat(undefined, {
+    weekday: "short",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(reset)}`;
+}
+
+function formatWindow(id) {
+  return id.split("_").map((part) => part[0].toUpperCase() + part.slice(1)).join(" ");
+}
+
+function formatPercent(percent) {
+  return Number.isInteger(percent) ? `${percent}%` : `${percent.toFixed(1)}%`;
+}
+
+function renderSummary() {
+  const summary = select("#summary");
+  if (!summary) return;
+  summary.replaceChildren();
+  if (!state.snapshots.length) {
+    const card = element("div", { className: "summary-card summary-card-wide" });
+    append(card, element("div", { className: "summary-label", text: "Provider sync" }), element("div", { className: "summary-value", text: state.loading ? "…" : "—" }), element("div", { className: "summary-detail", text: state.loadError || "Waiting for usage data" }));
+    summary.append(card);
+    return;
+  }
+  const live = state.snapshots.filter((item) => item.status === "live").length;
+  const attention = state.snapshots.filter((item) => ["cached", "stale"].includes(item.status)).length;
+  const unavailable = state.snapshots.filter((item) => item.status === "unavailable").length;
+  const nextReset = state.snapshots.flatMap((item) => item.windows || []).map((window) => window.resets_at).filter(Boolean).sort()[0];
+  const cards = [
+    ["Healthy now", live, live === 1 ? "account reporting live" : "accounts reporting live"],
+    ["Needs a look", attention, attention ? "cached or stale data" : "no stale snapshots"],
+    ["Next reset", nextReset ? formatReset(nextReset).replace("Resets ", "") : "—", nextReset ? "earliest known window" : "no reset reported"],
+  ];
+  for (const [label, value, detail] of cards) {
+    const card = element("div", { className: "summary-card" });
+    append(card, element("div", { className: "summary-label", text: label }), element("div", { className: "summary-value", text: String(value) }), element("div", { className: "summary-detail", text: detail }));
+    summary.append(card);
+  }
+  if (unavailable) {
+    const card = element("div", { className: "summary-card summary-card-alert" });
+    append(card, element("div", { className: "summary-label", text: "Action" }), element("div", { className: "summary-value", text: String(unavailable) }), element("div", { className: "summary-detail", text: unavailable === 1 ? "account unavailable" : "accounts unavailable" }));
+    summary.append(card);
+  }
+  summary.classList.toggle("summary-grid-four", unavailable > 0);
+}
+
+function renderWindow(window) {
+  const wrapper = element("div", { className: "usage-window" });
+  const heading = element("div", { className: "window-heading" });
+  append(heading, element("span", { className: "window-name", text: formatWindow(window.id) }), element("strong", { text: formatPercent(window.used_percent) }));
+  const track = element("div", { className: "meter", attributes: { role: "progressbar", "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": String(window.used_percent), "aria-label": `${formatWindow(window.id)} usage` } });
+  track.append(element("span", { className: "meter-fill" }));
+  track.firstElementChild.style.width = `${Math.min(100, Math.max(0, window.used_percent))}%`;
+  const detail = element("div", { className: "window-detail", text: formatReset(window.resets_at) });
+  if (window.window_minutes) detail.append(element("span", { text: ` · ${window.window_minutes >= 1000 ? "7-day" : "5-hour"} window` }));
+  append(wrapper, heading, track, detail);
+  return wrapper;
+}
+
+function renderAccount(snapshot) {
+  const card = element("article", { className: `account-card status-${snapshot.status}` });
+  const header = element("div", { className: "account-card-header" });
+  const identity = element("div", { className: "account-identity" });
+  const monogram = element("span", { className: "provider-monogram", text: providerLabel(snapshot.provider).slice(0, 2).toUpperCase(), attributes: { "aria-hidden": "true" } });
+  const identityCopy = element("div", { className: "identity-copy" });
+  append(identityCopy, element("p", { className: "account-provider", text: accountLabel(snapshot) }), element("h3", { text: snapshot.configured_email }), element("p", { className: "account-meta", text: `${snapshot.source.replaceAll("_", " ")} · ${formatAge(snapshot.observed_at)}` }));
+  append(identity, monogram, identityCopy);
+  const status = element("div", { className: "status-stack" });
+  const badge = element("span", { className: "status-badge", text: statusLabel(snapshot.status) });
+  badge.prepend(element("span", { className: "status-dot", attributes: { "aria-hidden": "true" } }));
+  append(status, badge, element("span", { className: "status-note", text: snapshot.observed_email && snapshot.observed_email !== snapshot.configured_email ? `Observed ${snapshot.observed_email}` : "" }));
+  append(header, identity, status);
+  card.append(header);
+
+  if (snapshot.windows?.length) {
+    const windows = element("div", { className: "window-list" });
+    snapshot.windows.forEach((window) => windows.append(renderWindow(window)));
+    card.append(windows);
+  }
+
+  if (snapshot.message) card.append(element("p", { className: "account-message", text: snapshot.message }));
+  if (snapshot.error_code) card.append(element("p", { className: "account-error", text: snapshot.error_code.replaceAll("_", " ") }));
+  if (snapshot.status === "unavailable" && snapshot.provider === "codex") {
+    const action = element("button", { className: "button button-action", text: "Set up account", attributes: { type: "button" } });
+    action.addEventListener("click", () => openSetup(snapshot.account_id));
+    card.append(action);
+  }
+  return card;
+}
+
+function renderAccounts() {
+  const list = select("#account-list");
+  if (!list) return;
+  list.replaceChildren();
+  if (state.loading && !state.snapshots.length) {
+    const loading = element("div", { className: "loading-state", attributes: { role: "status" } });
+    append(loading, element("span", { className: "loading-line" }), element("span", { className: "loading-line short" }));
+    list.append(loading);
+    return;
+  }
+  if (!state.snapshots.length) {
+    list.append(element("div", { className: "empty-state", text: state.loadError || "No provider records returned." }));
+    return;
+  }
+  state.snapshots.forEach((snapshot) => list.append(renderAccount(snapshot)));
+}
+
+function render() {
+  renderSummary();
+  renderAccounts();
+}
+
+function updateTimestamp(generatedAt) {
+  const timestamp = select("#last-updated");
+  if (!timestamp || !generatedAt) return;
+  const date = new Date(generatedAt);
+  timestamp.dateTime = date.toISOString();
+  timestamp.textContent = `Synced ${formatAge(generatedAt)}`;
+}
+
+async function refresh(forceRefresh = false) {
+  state.loading = true;
+  state.loadError = null;
+  render();
+  const button = select("#refresh-button");
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Refreshing…";
+  }
+  const [usageResult, accountsResult] = await Promise.allSettled([loadUsage(forceRefresh), loadAccounts()]);
+  if (usageResult.status === "fulfilled") {
+    state.snapshots = usageResult.value.accounts || [];
+    updateTimestamp(usageResult.value.generated_at);
+  } else {
+    state.loadError = usageResult.reason?.message || "Usage could not be loaded.";
+  }
+  if (accountsResult.status === "fulfilled") state.accounts = accountsResult.value || [];
+  state.loading = false;
+  render();
+  if (select("#live-announcement")) select("#live-announcement").textContent = usageResult.status === "fulfilled" ? "Usage data refreshed." : state.loadError;
+  if (button) {
+    button.disabled = false;
+    button.textContent = "Refresh usage";
+  }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
-  const announcement = document.querySelector("#live-announcement");
-  if (announcement) announcement.textContent = "Dashboard shell loaded.";
+  initializeTheme();
+  select("#refresh-button")?.addEventListener("click", () => refresh(true));
+  refresh();
 });

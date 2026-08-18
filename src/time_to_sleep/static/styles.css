@@ -67,6 +67,8 @@ h1 { max-width: 720px; margin-bottom: 14px; font-family: Georgia, "Times New Rom
 .sync-note span { opacity: .72; }
 .summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; margin-bottom: 86px; border: 1px solid var(--line); background: var(--line); }
 .summary-card { min-height: 126px; padding: 22px; background: var(--surface); }
+.summary-card-alert .summary-value { color: var(--warning); }
+.summary-grid-four { grid-template-columns: repeat(4, 1fr); }
 .summary-label { margin-bottom: 22px; color: var(--muted); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; }
 .summary-value { font-family: Georgia, "Times New Roman", serif; font-size: 40px; line-height: 1; }
 .summary-detail { margin-top: 7px; color: var(--muted); font-size: 12px; }
@@ -74,6 +76,36 @@ h1 { max-width: 720px; margin-bottom: 14px; font-family: Georgia, "Times New Rom
 .section-heading h2 { margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: 35px; font-weight: 400; letter-spacing: -.05em; }
 .accounts-section { padding-bottom: 62px; }
 .account-list { display: grid; gap: 10px; }
+.account-card { padding: 24px; border: 1px solid var(--line); background: var(--surface); }
+.account-card-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
+.account-identity { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.provider-monogram { display: grid; flex: 0 0 auto; place-items: center; width: 42px; height: 42px; border: 1px solid var(--line); color: var(--accent); font-size: 10px; font-weight: 800; letter-spacing: .08em; }
+.identity-copy { min-width: 0; }
+.account-provider, .account-meta, .status-note, .account-message, .account-error { margin: 0; color: var(--muted); font-size: 12px; }
+.account-provider { margin-bottom: 3px; color: var(--accent); font-size: 11px; font-weight: 750; letter-spacing: .1em; text-transform: uppercase; }
+.identity-copy h3 { overflow: hidden; margin: 0; text-overflow: ellipsis; font-size: 16px; font-weight: 650; white-space: nowrap; }
+.account-meta { margin-top: 4px; text-transform: capitalize; }
+.status-stack { display: flex; flex: 0 0 auto; flex-direction: column; align-items: end; gap: 7px; }
+.status-badge { display: inline-flex; align-items: center; gap: 7px; color: var(--positive); font-size: 11px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+.status-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.status-cached .status-badge, .status-stale .status-badge { color: var(--warning); }
+.status-unavailable .status-badge { color: var(--danger); }
+.status-note { max-width: 300px; text-align: right; }
+.window-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; margin-top: 28px; padding-top: 20px; border-top: 1px solid var(--line); }
+.window-heading, .window-detail { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.window-heading { margin-bottom: 11px; font-size: 12px; }
+.window-heading strong { font-size: 19px; font-weight: 500; }
+.window-name, .window-detail { color: var(--muted); }
+.window-detail { margin-top: 8px; font-size: 11px; }
+.meter { height: 6px; overflow: hidden; border-radius: 99px; background: color-mix(in srgb, var(--line) 80%, transparent); }
+.meter-fill { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: width .5s ease-out; }
+.status-cached .meter-fill, .status-stale .meter-fill { background: var(--warning); }
+.status-unavailable .meter-fill { background: var(--line); }
+.account-message { margin-top: 18px; line-height: 1.55; }
+.account-error { margin-top: 6px; color: var(--warning); text-transform: capitalize; }
+.button-action { margin-top: 20px; background: var(--accent); border-color: var(--accent); color: var(--bg); font-weight: 700; }
+.button:disabled { cursor: wait; opacity: .55; transform: none; }
+.empty-state { padding: 32px 24px; border: 1px dashed var(--line); color: var(--muted); }
 .loading-state { padding: 28px; border: 1px solid var(--line); background: var(--surface); }
 .loading-line { display: block; width: 56%; height: 11px; margin-bottom: 12px; background: var(--line); }
 .loading-line.short { width: 28%; margin-bottom: 0; }
@@ -95,9 +127,15 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
   h1 { font-size: clamp(46px, 15vw, 72px); }
   .sync-note { margin-top: 24px; text-align: left; }
   .summary-grid { grid-template-columns: 1fr; margin-bottom: 58px; }
+  .summary-grid-four { grid-template-columns: 1fr; }
   .summary-card { min-height: auto; }
   .section-heading { display: block; }
   .section-caption { display: block; margin-top: 10px; }
+  .account-card { padding: 18px; }
+  .account-card-header { gap: 16px; }
+  .status-stack { align-items: end; }
+  .status-note { display: none; }
+  .window-list { grid-template-columns: 1fr; gap: 18px; }
   .site-footer { align-items: start; flex-direction: column; justify-content: center; gap: 4px; }
 }
 
