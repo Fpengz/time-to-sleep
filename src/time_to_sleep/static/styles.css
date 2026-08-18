@@ -25,6 +25,9 @@
   --danger: #ef8d83;
 }
 
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
+
 * { box-sizing: border-box; }
 
 html { min-width: 320px; background: var(--bg); color: var(--text); }
@@ -74,8 +77,11 @@ h1 { max-width: 720px; margin-bottom: 14px; font-family: Georgia, "Times New Rom
 .loading-state { padding: 28px; border: 1px solid var(--line); background: var(--surface); }
 .loading-line { display: block; width: 56%; height: 11px; margin-bottom: 12px; background: var(--line); }
 .loading-line.short { width: 28%; margin-bottom: 0; }
+.loading-line { animation: loading-pulse 1.4s ease-in-out infinite alternate; }
 .site-footer { justify-content: space-between; min-height: 76px; border-top: 1px solid var(--line); }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+
+@keyframes loading-pulse { from { opacity: .45; } to { opacity: 1; } }
 
 button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
 
