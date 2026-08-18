@@ -1,6 +1,0 @@
-[
-  { "id": "codex-1", "name": "Codex 1", "provider": "codex", "home": "~/.codex" },
-  { "id": "codex-2", "name": "Codex 2", "provider": "codex", "home": "~/.codex-account-2" },
-  { "id": "claude", "name": "Claude", "provider": "claude", "home": "~/.claude" },
-  { "id": "agy", "name": "Agy", "provider": "antigravity", "home": "~/.config/Antigravity" }
-]

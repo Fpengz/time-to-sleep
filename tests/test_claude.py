@@ -17,10 +17,10 @@ def test_credential_source_extracts_nested_oauth_token(monkeypatch) -> None:
     monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
     source = ClaudeCredentialSource(
         home=Path("/tmp/no-claude-home"),
-        keychain_loader=lambda: '{"claudeAiOauth":{"accessToken":"secret-token"}}',
+        keychain_loader=lambda: '{"claudeAiOauth":{"accessToken":"test-oauth-value"}}',
     )
 
-    assert source.get_token() == "secret-token"
+    assert source.get_token() == "test-oauth-value"
 
 
 @pytest.mark.asyncio

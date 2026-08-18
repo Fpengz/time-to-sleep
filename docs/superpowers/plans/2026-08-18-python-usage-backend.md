@@ -228,7 +228,7 @@ def test_parse_codex_rollout_uses_newest_valid_rate_limit_event() -> None:
     lines = [
         '{"timestamp":"2026-08-18T00:00:00Z","payload":{"rate_limits":{"primary":{"used_percent":12,"window_minutes":300,"resets_at":1780000000}}}}',
         '{"timestamp":"2026-08-18T00:01:00Z","payload":{"rate_limits":{"primary":{"used_percent":25,"window_minutes":300,"resets_at":1780000300}}}}',
-        '{bad json',
+        "{bad json",
     ]
     result = parse_codex_rollout(lines)
     assert result.used_percent == 25
@@ -279,9 +279,9 @@ Test the adapter with injected transport lines instead of the real network:
 ```python
 async def test_codex_adapter_reads_identity_and_rate_limits(fake_codex_transport) -> None:
     adapter = CodexProvider(command="codex", transport_factory=fake_codex_transport)
-    snapshot = await adapter.fetch(AccountConfig(
-        id="codex", provider="codex", email="wzf5350@gmail.com", home="~/.codex"
-    ))
+    snapshot = await adapter.fetch(
+        AccountConfig(id="codex", provider="codex", email="wzf5350@gmail.com", home="~/.codex")
+    )
     assert snapshot.observed_email == "wzf5350@gmail.com"
     assert snapshot.status is AccountStatus.LIVE
     assert snapshot.windows[0].used_percent == 15
@@ -419,7 +419,10 @@ def test_usage_returns_all_account_records(client):
     body = response.json()
     assert len(body["accounts"]) == 4
     assert {account["status"] for account in body["accounts"]} <= {
-        "live", "cached", "stale", "unavailable"
+        "live",
+        "cached",
+        "stale",
+        "unavailable",
     }
 ```
 
