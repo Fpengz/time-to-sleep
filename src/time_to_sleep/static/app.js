@@ -356,7 +356,14 @@ async function pollLogin(accountId, attemptId) {
       return;
     }
     if (select("#live-announcement")) select("#live-announcement").textContent = setupStatusMessage(attempt.status);
-    if (attempt.status === "succeeded") await refresh();
+    if (attempt.status === "succeeded") {
+      await refresh();
+      if (state.setup?.attemptId === attemptId) {
+        stopLoginPolling();
+        state.setup = null;
+        renderSetup();
+      }
+    }
   } catch (error) {
     if (!state.setup || state.setup.attemptId !== attemptId) return;
     state.setup.status = "error";

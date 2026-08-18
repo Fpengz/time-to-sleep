@@ -17,6 +17,10 @@ The default server listens on `127.0.0.1:4141`. For development with reload:
 uv run uvicorn time_to_sleep.api:app --reload
 ```
 
+Open the dashboard at <http://127.0.0.1:4141/>. The interactive API reference is
+available at <http://127.0.0.1:4141/docs>. The theme follows the operating system
+on first load; use the header toggle to persist an explicit light or dark choice.
+
 Run the verification commands with:
 
 ```bash
@@ -24,6 +28,8 @@ uv run pytest
 uv run ruff format --check .
 uv run ruff check .
 uv run ty check
+uv run playwright install chromium
+uv run python tests/browser_dashboard.py
 ```
 
 ## Configuration

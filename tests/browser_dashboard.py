@@ -1,0 +1,159 @@
+import json
+import os
+
+from playwright.sync_api import Browser, Page, sync_playwright
+
+BASE_URL = "http://127.0.0.1:4141"
+
+
+def assert_dashboard(page: Page) -> None:
+    page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30_000)
+    page.wait_for_load_state("networkidle", timeout=60_000)
+    assert page.locator("#summary").is_visible()
+    assert page.locator("#account-list").is_visible()
+    assert page.locator("#page-title").inner_text() == "Usage, at a glance."
+    assert page.locator("#account-list .account-card").count() == 4
+
+    initial_theme = page.locator("html").get_attribute("data-theme")
+    assert initial_theme in {"light", "dark"}
+    page.locator("#theme-toggle").click()
+    changed_theme = page.locator("html").get_attribute("data-theme")
+    assert changed_theme in {"light", "dark"}
+    assert changed_theme != initial_theme
+    assert page.evaluate("localStorage.getItem('time-to-sleep-theme')") == changed_theme
+
+    page.locator("#refresh-button").click()
+    page.wait_for_function(
+        "document.querySelector('#refresh-button').disabled === false",
+        timeout=60_000,
+    )
+    announcement = page.locator("#live-announcement").text_content() or ""
+    assert "refreshed" in announcement.lower()
+
+
+def assert_setup_flow(browser: Browser) -> None:
+    page = browser.new_page(viewport={"width": 1100, "height": 900}, color_scheme="light")
+    snapshots = [
+        {
+            "account_id": "codex-primary",
+            "provider": "codex",
+            "configured_email": "primary@example.com",
+            "status": "live",
+            "source": "test",
+            "observed_at": "2026-08-18T00:00:00Z",
+            "retrieved_at": "2026-08-18T00:00:00Z",
+            "windows": [{"id": "primary", "used_percent": 18}],
+        },
+        {
+            "account_id": "codex-secondary",
+            "provider": "codex",
+            "configured_email": "secondary@example.com",
+            "status": "unavailable",
+            "source": "test",
+            "observed_at": None,
+            "retrieved_at": "2026-08-18T00:00:00Z",
+            "windows": [],
+            "message": "Codex home is not configured.",
+            "error_code": "not_configured",
+        },
+        {
+            "account_id": "claude",
+            "provider": "claude",
+            "configured_email": "claude@example.com",
+            "status": "cached",
+            "source": "test",
+            "observed_at": "2026-08-18T00:00:00Z",
+            "retrieved_at": "2026-08-18T00:00:00Z",
+            "windows": [{"id": "five_hour", "used_percent": 51}],
+        },
+        {
+            "account_id": "antigravity",
+            "provider": "antigravity",
+            "configured_email": "agy@example.com",
+            "status": "unavailable",
+            "source": "test",
+            "observed_at": None,
+            "retrieved_at": "2026-08-18T00:00:00Z",
+            "windows": [],
+        },
+    ]
+    usage = {"generated_at": "2026-08-18T00:00:00Z", "accounts": snapshots}
+    status_reads = 0
+
+    def fulfill(route, payload) -> None:
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(payload))
+
+    page.route(f"{BASE_URL}/v1/usage*", lambda route: fulfill(route, usage))
+    page.route(f"{BASE_URL}/v1/accounts", lambda route: fulfill(route, []))
+    page.route(
+        f"{BASE_URL}/v1/accounts/codex-secondary/login/start",
+        lambda route: fulfill(
+            route,
+            {
+                "attempt_id": "attempt-1",
+                "method": "device_code",
+                "status": "pending",
+                "verification_url": "https://auth.example.test/verify",
+                "user_code": "ABCD-EFGH",
+            },
+        ),
+    )
+
+    def login_status(route) -> None:
+        nonlocal status_reads
+        status_reads += 1
+        status = "pending" if status_reads == 1 else "succeeded"
+        fulfill(
+            route,
+            {
+                "attempt_id": "attempt-1",
+                "account_id": "codex-secondary",
+                "method": "device_code",
+                "status": status,
+                "started_at": "2026-08-18T00:00:00Z",
+                "expires_at": "2026-08-18T00:10:00Z",
+            },
+        )
+
+    page.route(
+        f"{BASE_URL}/v1/accounts/codex-secondary/login/attempt-1",
+        login_status,
+    )
+    page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30_000)
+    page.wait_for_load_state("networkidle", timeout=10_000)
+    page.get_by_role("button", name="Set up account").click()
+    page.select_option("#setup-method", "device_code")
+    page.get_by_role("button", name="Start login").click()
+    page.get_by_text("ABCD-EFGH").wait_for(state="visible", timeout=5_000)
+    page.wait_for_selector("#setup-panel", state="hidden", timeout=10_000)
+    assert status_reads >= 2
+    page.close()
+
+
+def main() -> None:
+    console_errors: list[str] = []
+    page_errors: list[str] = []
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(
+            headless=True,
+            executable_path=os.environ.get("PLAYWRIGHT_EXECUTABLE_PATH"),
+        )
+        page = browser.new_page(viewport={"width": 1440, "height": 1000}, color_scheme="light")
+        page.on(
+            "console",
+            lambda message: (
+                console_errors.append(message.text) if message.type == "error" else None
+            ),
+        )
+        page.on("pageerror", lambda error: page_errors.append(str(error)))
+        try:
+            assert_dashboard(page)
+            assert_setup_flow(browser)
+        finally:
+            browser.close()
+    if console_errors or page_errors:
+        raise AssertionError(f"browser errors: console={console_errors}, page={page_errors}")
+
+
+if __name__ == "__main__":
+    main()

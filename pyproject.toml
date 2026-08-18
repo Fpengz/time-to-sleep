@@ -15,6 +15,7 @@ dependencies = [
 dev = [
   "pytest>=8.3,<9",
   "pytest-asyncio>=0.25,<1",
+  "playwright>=1.50,<2",
   "respx>=0.22,<1",
   "ruff>=0.15,<1",
   "ty>=0.0.1,<1",
