@@ -33,6 +33,7 @@ def assert_dashboard(page: Page) -> None:
 
 def assert_setup_flow(browser: Browser) -> None:
     page = browser.new_page(viewport={"width": 1100, "height": 900}, color_scheme="light")
+    page.context.grant_permissions(["clipboard-read", "clipboard-write"], origin=BASE_URL)
     snapshots = [
         {
             "account_id": "codex-primary",
@@ -143,6 +144,10 @@ def assert_setup_flow(browser: Browser) -> None:
     page.select_option("#setup-method", "device_code")
     page.get_by_role("button", name="Start login").click()
     page.get_by_text("ABCD-EFGH").wait_for(state="visible", timeout=5_000)
+    copy_button = page.get_by_role("button", name="Copy device code")
+    copy_button.click()
+    page.wait_for_function("navigator.clipboard.readText().then((value) => value === 'ABCD-EFGH')")
+    assert copy_button.inner_text() == "Copied"
     page.wait_for_selector("#setup-panel", state="hidden", timeout=10_000)
     assert status_reads >= 2
     page.close()

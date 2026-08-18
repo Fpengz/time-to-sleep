@@ -273,6 +273,20 @@ function setupStatusMessage(status) {
   }[status] || "Choose a login method to begin.";
 }
 
+async function copyDeviceCode(code, button) {
+  const originalLabel = button.textContent;
+  try {
+    if (!navigator.clipboard?.writeText) throw new Error("Clipboard access is unavailable");
+    await navigator.clipboard.writeText(code);
+    button.textContent = "Copied";
+  } catch {
+    button.textContent = "Copy failed";
+  }
+  window.setTimeout(() => {
+    if (button.isConnected) button.textContent = originalLabel;
+  }, 1500);
+}
+
 function renderSetup() {
   const panel = select("#setup-panel");
   if (!panel) return;
@@ -333,7 +347,18 @@ function renderSetup() {
     }
     if (setup.challenge.user_code) {
       const code = element("p", { className: "setup-code-label", text: "Your device code" });
-      const codeValue = element("code", { className: "setup-code", text: setup.challenge.user_code });
+      const codeValue = element("button", {
+        className: "setup-code",
+        text: setup.challenge.user_code,
+        attributes: {
+          type: "button",
+          "aria-label": "Copy device code",
+          title: "Copy device code",
+        },
+      });
+      codeValue.addEventListener("click", () => {
+        void copyDeviceCode(setup.challenge.user_code, codeValue);
+      });
       append(challenge, code, codeValue);
     }
     panel.append(challenge);
