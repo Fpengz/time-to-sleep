@@ -1,0 +1,47 @@
+[project]
+name = "time-to-sleep"
+version = "0.1.0"
+description = "Local usage retrieval backend for coding agents"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "httpx>=0.28,<1",
+  "pydantic-settings>=2.7,<3",
+  "uvicorn[standard]>=0.34,<1",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=8.3,<9",
+  "pytest-asyncio>=0.25,<1",
+  "respx>=0.22,<1",
+  "ruff>=0.15,<1",
+  "ty>=0.0.1,<1",
+]
+
+[project.scripts]
+time-to-sleep = "time_to_sleep.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/time_to_sleep"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.ty.environment]
+python-version = "3.12"
+root = ["src"]

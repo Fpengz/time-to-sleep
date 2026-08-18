@@ -1,0 +1,23 @@
+[[accounts]]
+id = "codex-primary"
+provider = "codex"
+email = "wzf5350@gmail.com"
+home = "~/.codex"
+
+[[accounts]]
+id = "codex-secondary"
+provider = "codex"
+email = "wzf0513@gmail.com"
+home = "~/.config/time-to-sleep/accounts/codex-secondary"
+
+[[accounts]]
+id = "claude"
+provider = "claude"
+email = "wzf5350@gmail.com"
+home = "~/.claude"
+
+[[accounts]]
+id = "antigravity"
+provider = "antigravity"
+email = "wzf5350@gmail.com"
+home = "~/.config/Antigravity"
