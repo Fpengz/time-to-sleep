@@ -1,0 +1,6 @@
+# <type>: <subject>
+#
+# Types: feat, fix, docs, style, refactor, perf, test, chore
+# Keep the subject concise and use the imperative mood.
+#
+# Body (optional): explain what changed and why. Wrap lines at 72 characters.
