@@ -1,15 +1,21 @@
 import asyncio
 from collections.abc import Callable, Mapping
+from contextlib import suppress
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from uuid import uuid4
 
 from time_to_sleep.domain import (
     AccountConfig,
     AccountStatus,
     ErrorCode,
+    LoginAttempt,
+    LoginChallenge,
     Settings,
     UsageSnapshot,
 )
 from time_to_sleep.providers.base import UsageProvider
+from time_to_sleep.providers.codex import CodexLoginSession, LoginTransportFactory
 
 DEFAULT_TTLS = {
     "codex": timedelta(seconds=60),
@@ -145,3 +151,143 @@ class UsageService:
             message=message,
             error_code=error_code,
         )
+
+
+class _LoginRecord:
+    def __init__(self, attempt: LoginAttempt, session: CodexLoginSession) -> None:
+        self.attempt = attempt
+        self.session = session
+        self.task: asyncio.Task[None] | None = None
+
+
+class LoginService:
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        command: str = "codex",
+        transport_factory: LoginTransportFactory | None = None,
+        now: Callable[[], datetime] | None = None,
+        attempt_ttl: timedelta = timedelta(minutes=10),
+    ) -> None:
+        self.settings = settings
+        self.command = command
+        self.transport_factory = transport_factory
+        self._now = now or (lambda: datetime.now(UTC))
+        self._attempt_ttl = attempt_ttl
+        self._records: dict[tuple[str, str], _LoginRecord] = {}
+
+    async def start(self, account_id: str, method: str) -> LoginChallenge:
+        account = self._account(account_id)
+        if account.provider != "codex":
+            raise ValueError("Login setup is only supported for Codex accounts")
+        if method not in {"browser", "device_code"}:
+            raise ValueError(f"Unsupported login method: {method}")
+
+        home = Path(account.expanded_home)
+        home.mkdir(parents=True, exist_ok=True)
+        home.chmod(0o700)
+        session = CodexLoginSession(
+            command=self.command,
+            transport_factory=self.transport_factory,
+        )
+        prompt = await session.start(account, method)
+        attempt_id = uuid4().hex
+        started_at = self._now()
+        expires_at = started_at + self._attempt_ttl
+        typed_method = method
+        record = _LoginRecord(
+            LoginAttempt(
+                attempt_id=attempt_id,
+                account_id=account.id,
+                method=typed_method,
+                status="pending",
+                started_at=started_at,
+                expires_at=expires_at,
+            ),
+            session,
+        )
+        self._records[(account.id, attempt_id)] = record
+        record.task = asyncio.create_task(self._monitor(record, account))
+        return LoginChallenge(
+            attempt_id=attempt_id,
+            method=typed_method,
+            status="pending",
+            auth_url=prompt.auth_url,
+            verification_url=prompt.verification_url,
+            user_code=prompt.user_code,
+        )
+
+    async def status(self, account_id: str, attempt_id: str) -> LoginAttempt:
+        record = self._record(account_id, attempt_id)
+        if record.attempt.status == "pending" and self._now() >= record.attempt.expires_at:
+            await self._expire(record)
+        return record.attempt
+
+    async def cancel(self, account_id: str, attempt_id: str) -> LoginAttempt:
+        record = self._record(account_id, attempt_id)
+        if record.attempt.status == "pending":
+            record.attempt = record.attempt.model_copy(
+                update={"status": "cancelled", "message": "Login cancelled."}
+            )
+            await self._stop(record)
+        return record.attempt
+
+    def _account(self, account_id: str) -> AccountConfig:
+        for account in self.settings.accounts:
+            if account.id == account_id:
+                return account
+        raise KeyError(account_id)
+
+    def _record(self, account_id: str, attempt_id: str) -> _LoginRecord:
+        try:
+            return self._records[(account_id, attempt_id)]
+        except KeyError as error:
+            raise KeyError(attempt_id) from error
+
+    async def _monitor(self, record: _LoginRecord, account: AccountConfig) -> None:
+        try:
+            timeout = max((record.attempt.expires_at - self._now()).total_seconds(), 0.0)
+            await asyncio.wait_for(record.session.wait_for_completion(), timeout=timeout)
+            observed_email = await record.session.account_email()
+            if observed_email == account.email:
+                record.attempt = record.attempt.model_copy(
+                    update={
+                        "status": "succeeded",
+                        "observed_email": observed_email,
+                        "message": "Codex login completed.",
+                    }
+                )
+            else:
+                record.attempt = record.attempt.model_copy(
+                    update={
+                        "status": "failed",
+                        "observed_email": observed_email,
+                        "message": "Codex login completed for a different account.",
+                    }
+                )
+        except TimeoutError:
+            await self._expire(record)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            record.attempt = record.attempt.model_copy(
+                update={"status": "failed", "message": "Codex login failed."}
+            )
+        finally:
+            await record.session.close()
+
+    async def _expire(self, record: _LoginRecord) -> None:
+        if record.attempt.status == "pending":
+            record.attempt = record.attempt.model_copy(
+                update={"status": "expired", "message": "Login attempt expired."}
+            )
+        await self._stop(record)
+
+    async def _stop(self, record: _LoginRecord) -> None:
+        task = record.task
+        if task is not None and task is not asyncio.current_task() and not task.done():
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+        await record.session.close()

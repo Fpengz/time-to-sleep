@@ -3,9 +3,10 @@ import json
 import os
 import shutil
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from time_to_sleep import __version__
 from time_to_sleep.domain import AccountConfig, AccountStatus, ErrorCode, UsageSnapshot, UsageWindow
@@ -13,7 +14,27 @@ from time_to_sleep.providers.base import JsonRpcTransport, ParsedWindows
 from time_to_sleep.providers.parsers import parse_codex_rollout
 
 TransportFactory = Callable[[AccountConfig], Awaitable[JsonRpcTransport]]
+LoginTransportFactory = Callable[[AccountConfig], Awaitable["CodexLoginTransport"]]
 _FALLBACK_MAX_AGE = timedelta(minutes=15)
+
+
+class CodexLoginTransport(Protocol):
+    async def request(
+        self, method: str, params: dict[str, Any] | None = None
+    ) -> dict[str, Any]: ...
+
+    async def notify(self, method: str, params: dict[str, Any] | None = None) -> None: ...
+
+    async def next_message(self) -> dict[str, Any]: ...
+
+    async def close(self) -> None: ...
+
+
+@dataclass(frozen=True)
+class CodexLoginChallenge:
+    auth_url: str | None = None
+    verification_url: str | None = None
+    user_code: str | None = None
 
 
 class CodexRpcError(RuntimeError):
@@ -80,6 +101,9 @@ class SubprocessJsonRpcTransport:
         if not isinstance(message, dict):
             raise CodexRpcError("Codex app-server returned a non-object message")
         return message
+
+    async def next_message(self) -> dict[str, Any]:
+        return await self._read()
 
     async def close(self) -> None:
         if self.process.returncode is not None:
@@ -268,3 +292,78 @@ class CodexProvider:
             message=message,
             error_code=error_code,
         )
+
+
+class CodexLoginSession:
+    def __init__(
+        self,
+        command: str = "codex",
+        transport_factory: LoginTransportFactory | None = None,
+    ) -> None:
+        self.command = command
+        self.transport_factory = transport_factory
+        self.transport: CodexLoginTransport | None = None
+
+    async def start(self, account: AccountConfig, method: str) -> CodexLoginChallenge:
+        if method not in {"browser", "device_code"}:
+            raise ValueError(f"Unsupported Codex login method: {method}")
+        self.transport = await self._open_transport(account)
+        try:
+            await self.transport.request(
+                "initialize",
+                {
+                    "clientInfo": {
+                        "name": "time_to_sleep",
+                        "title": "Time-to-Sleep",
+                        "version": __version__,
+                    }
+                },
+            )
+            await self.transport.notify("initialized")
+            response = await self.transport.request(
+                "account/login/start",
+                {"type": "chatgpt" if method == "browser" else "chatgptDeviceCode"},
+            )
+            result = response.get("result", {})
+            if not isinstance(result, dict):
+                raise CodexRpcError("Codex returned an invalid login challenge")
+            return CodexLoginChallenge(
+                auth_url=_optional_text(result.get("authUrl")),
+                verification_url=_optional_text(result.get("verificationUrl")),
+                user_code=_optional_text(result.get("userCode")),
+            )
+        except Exception:
+            await self.close()
+            raise
+
+    async def wait_for_completion(self) -> None:
+        if self.transport is None:
+            raise CodexRpcError("Codex login session has not started")
+        while True:
+            message = await self.transport.next_message()
+            if message.get("method") == "account/login/completed":
+                return
+
+    async def account_email(self) -> str | None:
+        if self.transport is None:
+            raise CodexRpcError("Codex login session has not started")
+        response = await self.transport.request("account/read", {"refreshToken": False})
+        account_data = response.get("result", {}).get("account", {})
+        if not isinstance(account_data, dict):
+            return None
+        return _optional_text(account_data.get("email"))
+
+    async def close(self) -> None:
+        if self.transport is not None:
+            transport = self.transport
+            self.transport = None
+            await transport.close()
+
+    async def _open_transport(self, account: AccountConfig) -> CodexLoginTransport:
+        if self.transport_factory is not None:
+            return await self.transport_factory(account)
+        return await SubprocessJsonRpcTransport.open(account, self.command)
+
+
+def _optional_text(value: Any) -> str | None:
+    return value.strip() if isinstance(value, str) and value.strip() else None
