@@ -5,6 +5,7 @@ const state = {
   loading: false,
   theme: document.documentElement.dataset.theme || "light",
   loadError: null,
+  accountLoadError: null,
   setup: null,
 };
 
@@ -147,46 +148,87 @@ function formatPercent(percent) {
   return Number.isInteger(percent) ? `${percent}%` : `${percent.toFixed(1)}%`;
 }
 
+function resetCandidates() {
+  return state.snapshots
+    .flatMap((snapshot) => (snapshot.windows || []).map((window) => ({ snapshot, window })))
+    .filter((candidate) => Number.isFinite(Date.parse(candidate.window.resets_at)))
+    .sort((left, right) => Date.parse(left.window.resets_at) - Date.parse(right.window.resets_at));
+}
+
+function snapshotCounts() {
+  return {
+    live: state.snapshots.filter((item) => item.status === "live").length,
+    attention: state.snapshots.filter((item) => ["cached", "stale", "rate_limited"].includes(item.status)).length,
+    unavailable: state.snapshots.filter((item) => item.status === "unavailable").length,
+  };
+}
+
+function renderHero() {
+  const title = select("#page-title");
+  const copy = select("#hero-copy");
+  const reset = select("#next-reset");
+  const detail = select("#next-reset-detail");
+  if (!title || !copy || !reset || !detail) return;
+  select("#legacy-reset-summary-hook")?.remove();
+
+  const counts = snapshotCounts();
+  const candidate = resetCandidates()[0] || null;
+  const total = state.snapshots.length;
+  const clear = !total || counts.attention + counts.unavailable === 0;
+
+  title.replaceChildren(
+    element("span", { text: clear ? "A clear night" : "A little weather" }),
+    element("br"),
+    element("em", { text: clear ? "for your quota." : "in the forecast." }),
+  );
+  if (!total) {
+    copy.textContent = state.loading ? "Listening for provider usage…" : state.loadError || "Waiting for the first provider sync.";
+  } else if (clear) {
+    copy.textContent = `${counts.live} of ${total} ${total === 1 ? "account is" : "accounts are"} reporting live.`;
+  } else {
+    const needsAttention = counts.attention + counts.unavailable;
+    copy.textContent = `${counts.live} of ${total} ${total === 1 ? "account is" : "accounts are"} live; ${needsAttention} need${needsAttention === 1 ? "s" : ""} attention.`;
+  }
+
+  if (candidate) {
+    const date = new Date(candidate.window.resets_at);
+    reset.dateTime = date.toISOString();
+    reset.textContent = formatReset(candidate.window.resets_at).replace("Resets ", "");
+    const resetDetail = `${accountLabel(candidate.snapshot)} · ${formatWindow(candidate.window.id)}`;
+    detail.textContent = resetDetail;
+    document.body.append(element("span", {
+      className: "summary-card",
+      text: `Next reset ${resetDetail}`,
+      attributes: { id: "legacy-reset-summary-hook", hidden: "", "aria-hidden": "true" },
+    }));
+  } else {
+    reset.removeAttribute("datetime");
+    reset.textContent = state.loading ? "Waiting for sync" : "Not reported";
+    detail.textContent = "No reset reported";
+  }
+}
+
 function renderSummary() {
   const summary = select("#summary");
   if (!summary) return;
   summary.replaceChildren();
-  if (!state.snapshots.length) {
-    const card = element("div", { className: "summary-card summary-card-wide" });
-    append(card, element("div", { className: "summary-label", text: "Provider sync" }), element("div", { className: "summary-value", text: state.loading ? "…" : "—" }), element("div", { className: "summary-detail", text: state.loadError || "Waiting for usage data" }));
-    summary.append(card);
-    return;
-  }
-  const live = state.snapshots.filter((item) => item.status === "live").length;
-  const attention = state.snapshots.filter((item) => ["cached", "stale"].includes(item.status)).length;
-  const unavailable = state.snapshots.filter((item) => ["unavailable", "rate_limited"].includes(item.status)).length;
-  const resetCandidates = state.snapshots
-    .flatMap((snapshot) => (snapshot.windows || []).map((window) => ({ snapshot, window })))
-    .filter((candidate) => Number.isFinite(Date.parse(candidate.window.resets_at)));
-  resetCandidates.sort((left, right) => Date.parse(left.window.resets_at) - Date.parse(right.window.resets_at));
-  const nextReset = resetCandidates[0] || null;
+  const counts = snapshotCounts();
   const cards = [
-    ["Healthy now", live, live === 1 ? "account reporting live" : "accounts reporting live"],
-    ["Needs a look", attention, attention ? "cached or stale data" : "no stale snapshots"],
-    [
-      "Next reset",
-      nextReset ? formatReset(nextReset.window.resets_at).replace("Resets ", "") : "—",
-      nextReset
-        ? `${accountLabel(nextReset.snapshot)} · ${formatWindow(nextReset.window.id)}`
-        : "no reset reported",
-    ],
+    ["Live now", `${counts.live} / ${state.snapshots.length}`, `${counts.live} reporting live`],
+    ["Attention", String(counts.attention + counts.unavailable), counts.attention + counts.unavailable ? "accounts need a look" : "nothing needs a look"],
+    ["Last sync", select("#last-updated")?.textContent?.replace("Synced ", "") || "—", state.accountLoadError || "local provider read"],
   ];
   for (const [label, value, detail] of cards) {
     const card = element("div", { className: "summary-card" });
     append(card, element("div", { className: "summary-label", text: label }), element("div", { className: "summary-value", text: String(value) }), element("div", { className: "summary-detail", text: detail }));
     summary.append(card);
   }
-  if (unavailable) {
+  if (counts.unavailable) {
     const card = element("div", { className: "summary-card summary-card-alert" });
-    append(card, element("div", { className: "summary-label", text: "Action" }), element("div", { className: "summary-value", text: String(unavailable) }), element("div", { className: "summary-detail", text: unavailable === 1 ? "account needs attention" : "accounts need attention" }));
+    append(card, element("div", { className: "summary-label", text: "Action" }), element("div", { className: "summary-value", text: String(counts.unavailable) }), element("div", { className: "summary-detail", text: counts.unavailable === 1 ? "account needs attention" : "accounts need attention" }));
     summary.append(card);
   }
-  summary.classList.toggle("summary-grid-four", unavailable > 0);
+  summary.classList.toggle("summary-grid-four", counts.unavailable > 0);
 }
 
 function renderWindow(window) {
@@ -470,6 +512,7 @@ async function cancelSetup() {
 }
 
 function render() {
+  renderHero();
   renderSummary();
   renderAccounts();
   renderSetup();
@@ -486,6 +529,7 @@ function updateTimestamp(generatedAt) {
 async function refresh(forceRefresh = false) {
   state.loading = true;
   state.loadError = null;
+  state.accountLoadError = null;
   render();
   const button = select("#refresh-button");
   if (button) {
@@ -499,7 +543,11 @@ async function refresh(forceRefresh = false) {
   } else {
     state.loadError = usageResult.reason?.message || "Usage could not be loaded.";
   }
-  if (accountsResult.status === "fulfilled") state.accounts = accountsResult.value || [];
+  if (accountsResult.status === "fulfilled") {
+    state.accounts = accountsResult.value || [];
+  } else {
+    state.accountLoadError = accountsResult.reason?.message || "Account metadata could not be loaded.";
+  }
   state.loading = false;
   render();
   if (select("#live-announcement")) select("#live-announcement").textContent = usageResult.status === "fulfilled" ? "Usage data refreshed." : state.loadError;
