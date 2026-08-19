@@ -129,6 +129,7 @@ def assert_setup_flow(browser: Browser, console_errors: list[str], page_errors: 
     ]
     usage = {"generated_at": "2026-08-18T00:00:00Z", "accounts": snapshots}
     status_reads = 0
+    manual_refresh_started = False
     usage_reads = 0
     usage_urls = []
     usage_completed = 0
@@ -137,10 +138,21 @@ def assert_setup_flow(browser: Browser, console_errors: list[str], page_errors: 
         route.fulfill(status=200, content_type="application/json", body=json.dumps(payload))
 
     def usage_response(route) -> None:
-        nonlocal usage_reads, usage_completed
+        nonlocal manual_refresh_started, usage_reads, usage_completed
         usage_reads += 1
         usage_urls.append(route.request.url)
-        fulfill(route, usage)
+        if usage_reads == 2:
+            manual_refresh_started = True
+        payload = usage
+        if usage_reads == 3:
+            payload = {
+                **usage,
+                "accounts": [
+                    {**snapshots[0], "configured_email": "logged-in@example.com"},
+                    *snapshots[1:],
+                ],
+            }
+        fulfill(route, payload)
         usage_completed += 1
 
     page.add_init_script(
@@ -184,7 +196,7 @@ def assert_setup_flow(browser: Browser, console_errors: list[str], page_errors: 
     def login_status(route) -> None:
         nonlocal status_reads
         status_reads += 1
-        status = "pending" if status_reads == 1 else "succeeded"
+        status = "succeeded" if manual_refresh_started else "pending"
         fulfill(
             route,
             {
@@ -231,6 +243,7 @@ def assert_setup_flow(browser: Browser, console_errors: list[str], page_errors: 
     assert usage_completed == 3
     assert usage_urls[1] == f"{BASE_URL}/v1/usage"
     assert usage_urls[2].endswith("/v1/usage?force_refresh=true")
+    assert "logged-in@example.com" in page.locator("#account-list").inner_text()
     usage_events = page.evaluate("window.__usageFetchEvents")
     for event in (
         "received-1",

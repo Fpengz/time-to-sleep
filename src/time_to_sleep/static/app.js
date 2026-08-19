@@ -4,6 +4,7 @@ const state = {
   accounts: [],
   loading: false,
   refreshPromise: null,
+  refreshQueuedPromise: null,
   refreshForce: false,
   theme: document.documentElement.dataset.theme || "light",
   loadError: null,
@@ -540,10 +541,19 @@ function updateTimestamp(generatedAt) {
 async function refresh(forceRefresh = false) {
   if (state.refreshPromise) {
     if (forceRefresh && !state.refreshForce) {
-      return state.refreshPromise.then(
-        () => refresh(true),
-        () => refresh(true),
-      );
+      if (!state.refreshQueuedPromise) {
+        state.refreshQueuedPromise = state.refreshPromise.then(
+          () => {
+            state.refreshQueuedPromise = null;
+            return refresh(true);
+          },
+          () => {
+            state.refreshQueuedPromise = null;
+            return refresh(true);
+          },
+        );
+      }
+      return state.refreshQueuedPromise;
     }
     return state.refreshPromise;
   }
@@ -578,14 +588,17 @@ async function refresh(forceRefresh = false) {
         state.accountLoadError = accountsResult.reason?.message || "Account metadata could not be loaded.";
       }
     } finally {
-      state.loading = false;
-      if (accountList) accountList.removeAttribute("aria-busy");
-      if (button) {
-        button.disabled = false;
-        button.textContent = "Refresh usage";
+      const hasQueuedRefresh = Boolean(state.refreshQueuedPromise);
+      if (!hasQueuedRefresh) {
+        state.loading = false;
+        if (accountList) accountList.removeAttribute("aria-busy");
+        if (button) {
+          button.disabled = false;
+          button.textContent = "Refresh usage";
+        }
+        if (announcement && usageResult && accountsResult) announcement.textContent = refreshAnnouncement(usageResult, accountsResult);
+        render();
       }
-      if (announcement && usageResult && accountsResult) announcement.textContent = refreshAnnouncement(usageResult, accountsResult);
-      render();
     }
   })();
   state.refreshPromise = activeRefresh;
