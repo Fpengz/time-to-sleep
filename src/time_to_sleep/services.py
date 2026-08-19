@@ -26,7 +26,7 @@ DEFAULT_TTLS = {
 DEFAULT_TIMEOUTS = {
     "codex": 15.0,
     "claude": 15.0,
-    "antigravity": 5.0,
+    "antigravity": 15.0,
 }
 FALLBACK_GRACE = timedelta(minutes=15)
 

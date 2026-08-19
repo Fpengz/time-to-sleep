@@ -134,6 +134,11 @@ function formatReset(timestamp) {
 }
 
 function formatWindow(id) {
+  const labels = {
+    third_party_weekly: "Claude + GPT Weekly",
+    third_party_five_hour: "Claude + GPT Five Hour",
+  };
+  if (labels[id]) return labels[id];
   return id.split("_").map((part) => part[0].toUpperCase() + part.slice(1)).join(" ");
 }
 
@@ -202,7 +207,8 @@ function renderAccount(snapshot) {
   const identity = element("div", { className: "account-identity" });
   const monogram = element("span", { className: "provider-monogram", text: providerLabel(snapshot.provider).slice(0, 2).toUpperCase(), attributes: { "aria-hidden": "true" } });
   const identityCopy = element("div", { className: "identity-copy" });
-  append(identityCopy, element("p", { className: "account-provider", text: accountLabel(snapshot) }), element("h3", { text: snapshot.configured_email }), element("p", { className: "account-meta", text: `${snapshot.source.replaceAll("_", " ")} · ${formatAge(snapshot.observed_at)}` }));
+  const accountMeta = [snapshot.plan_type, snapshot.source.replaceAll("_", " "), formatAge(snapshot.observed_at)].filter(Boolean).join(" · ");
+  append(identityCopy, element("p", { className: "account-provider", text: accountLabel(snapshot) }), element("h3", { text: snapshot.configured_email }), element("p", { className: "account-meta", text: accountMeta }));
   append(identity, monogram, identityCopy);
   const status = element("div", { className: "status-stack" });
   const badge = element("span", { className: "status-badge", text: statusLabel(snapshot.status) });

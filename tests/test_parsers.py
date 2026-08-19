@@ -4,6 +4,7 @@ import pytest
 
 from time_to_sleep.providers.parsers import (
     parse_antigravity_log,
+    parse_antigravity_quota_summary,
     parse_claude_plan_history,
     parse_codex_rollout,
 )
@@ -66,3 +67,50 @@ def test_parse_antigravity_log_rejects_stale_quota_event() -> None:
             "2026-08-17T00:00:00Z Individual quota reached; Resets in 1h0m0s",
             now=datetime(2026, 8, 18, 0, 10, tzinfo=UTC),
         )
+
+
+def test_parse_antigravity_quota_summary_maps_shared_pools() -> None:
+    result = parse_antigravity_quota_summary(
+        {
+            "response": {
+                "groups": [
+                    {
+                        "displayName": "Gemini Models",
+                        "buckets": [
+                            {
+                                "bucketId": "gemini-weekly",
+                                "remainingFraction": 0.75,
+                                "resetTime": "2026-08-24T12:00:00Z",
+                            },
+                            {
+                                "bucketId": "gemini-5h",
+                                "remainingFraction": 1,
+                                "resetTime": "2026-08-19T07:00:00Z",
+                            },
+                        ],
+                    },
+                    {
+                        "displayName": "Claude and GPT models",
+                        "buckets": [
+                            {
+                                "bucketId": "3p-weekly",
+                                "remainingFraction": 0.5,
+                                "resetTime": "2026-08-26T02:00:00Z",
+                            }
+                        ],
+                    },
+                ]
+            }
+        },
+        now=datetime(2026, 8, 19, 1, tzinfo=UTC),
+    )
+
+    assert [window.id for window in result.windows] == [
+        "gemini_weekly",
+        "gemini_five_hour",
+        "third_party_weekly",
+    ]
+    assert result.windows[0].used_percent == 25
+    assert result.windows[0].window_minutes == 10080
+    assert result.windows[1].window_minutes == 300
+    assert result.windows[2].used_percent == 50

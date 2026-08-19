@@ -140,3 +140,59 @@ def parse_antigravity_log(content: str, now: datetime | None = None) -> ParsedWi
             )
         ],
     )
+
+
+def parse_antigravity_quota_summary(
+    document: Mapping[str, Any], now: datetime | None = None
+) -> ParsedWindows:
+    response = document.get("response", document)
+    if not isinstance(response, Mapping):
+        raise ValueError("Antigravity quota summary response is not an object")
+    groups = response.get("groups")
+    if not isinstance(groups, list):
+        raise ValueError("Antigravity quota summary has no groups")
+
+    windows: list[UsageWindow] = []
+    for group in groups:
+        if not isinstance(group, Mapping):
+            continue
+        group_name = str(group.get("displayName", "")).lower()
+        group_id = "gemini" if "gemini" in group_name else "third_party"
+        buckets = group.get("buckets")
+        if not isinstance(buckets, list):
+            continue
+        for bucket in buckets:
+            if not isinstance(bucket, Mapping):
+                continue
+            remaining = bucket.get("remainingFraction")
+            if not isinstance(remaining, (int, float)) or not 0 <= float(remaining) <= 1:
+                continue
+            bucket_id = str(bucket.get("bucketId", "")).lower()
+            window_kind = str(bucket.get("window", "")).lower()
+            if "weekly" in bucket_id or window_kind == "weekly":
+                suffix = "weekly"
+                duration = 10080
+            elif "5h" in bucket_id or window_kind in {"5h", "five_hour", "five-hour"}:
+                suffix = "five_hour"
+                duration = 300
+            else:
+                suffix = bucket_id.replace("-", "_") or "unknown"
+                duration = None
+            reset = bucket.get("resetTime")
+            try:
+                resets_at = _timestamp(reset) if reset is not None else None
+            except ValueError:
+                resets_at = None
+            windows.append(
+                UsageWindow(
+                    id=f"{group_id}_{suffix}",
+                    used_percent=round((1 - float(remaining)) * 100, 4),
+                    window_minutes=duration,
+                    resets_at=resets_at,
+                )
+            )
+
+    if not windows:
+        raise ValueError("Antigravity quota summary has no valid buckets")
+    observed_at = (now or datetime.now(UTC)).astimezone(UTC)
+    return ParsedWindows(observed_at=observed_at, windows=windows)

@@ -50,7 +50,7 @@ The configured accounts are:
 - Codex: `wzf0513@gmail.com` in an isolated profile under
   `~/.config/time-to-sleep/accounts/codex-secondary`
 - Claude Code: `wzf5350@gmail.com` in `~/.claude`
-- Antigravity: `wzf5350@gmail.com` in `~/.config/Antigravity`
+- Antigravity: `wzf5350@gmail.com` through the local `agy`/Antigravity server
 
 ## API
 
@@ -100,7 +100,9 @@ their app-server process is closed in every terminal state.
 - Claude first tries the OAuth usage endpoint using credentials discovered from the
   environment, macOS Keychain, or the configured credential file. When live OAuth
   usage is unavailable, it reads recent `plan-usage-history.json` data when present.
-- Antigravity reads a bounded tail of its language-server log and reports the most
-  recent quota reset event.
+- Antigravity discovers the local app or `agy` language server, starts `agy` when
+  needed, and reads its `RetrieveUserQuotaSummary` response for the Gemini and
+  Claude/GPT shared pools. It verifies the returned Google account before showing
+  usage and cleans up any temporary CLI process it started.
 
 Provider credentials and tokens are never printed by the backend.
