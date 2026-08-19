@@ -7,8 +7,13 @@ BASE_URL = "http://127.0.0.1:4141"
 
 
 def assert_no_horizontal_overflow(page: Page) -> None:
-    assert page.evaluate(
-        "document.documentElement.scrollWidth <= window.innerWidth"
+    dimensions = page.evaluate(
+        "({scrollWidth: document.documentElement.scrollWidth, innerWidth: window.innerWidth})"
+    )
+    assert dimensions["scrollWidth"] <= dimensions["innerWidth"], (
+        "horizontal overflow: "
+        f"scrollWidth={dimensions['scrollWidth']}, "
+        f"innerWidth={dimensions['innerWidth']}"
     )
 
 
@@ -22,7 +27,10 @@ def assert_dashboard(page: Page) -> None:
     assert page.locator("#next-reset").is_visible()
     assert page.locator("#signal-strip").is_visible()
     assert page.locator("#provider-ledger").is_visible()
-    assert page.locator("#account-list .account-card").count() == 4
+    account_cards = page.locator("#account-list .account-card")
+    assert account_cards.count() == 4
+    for index in range(account_cards.count()):
+        assert account_cards.nth(index).is_visible()
 
     initial_theme = page.locator("html").get_attribute("data-theme")
     assert initial_theme in {"light", "dark"}
