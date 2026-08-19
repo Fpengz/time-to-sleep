@@ -179,26 +179,26 @@ def assert_setup_flow(browser: Browser) -> None:
 def assert_retained_snapshots_on_refresh_failure(browser: Browser) -> None:
     page = browser.new_page(viewport={"width": 1100, "height": 900}, color_scheme="light")
     usage_reads = 0
-    usage = {
-        "generated_at": "2026-08-19T00:00:00Z",
-        "accounts": [
+    account_reads = 0
+    snapshot = {
+        "account_id": "codex-primary",
+        "provider": "codex",
+        "configured_email": "initial@example.com",
+        "status": "live",
+        "source": "test",
+        "observed_at": "2026-08-19T00:00:00Z",
+        "retrieved_at": "2026-08-19T00:00:00Z",
+        "windows": [
             {
-                "account_id": "codex-primary",
-                "provider": "codex",
-                "configured_email": "primary@example.com",
-                "status": "live",
-                "source": "test",
-                "observed_at": "2026-08-19T00:00:00Z",
-                "retrieved_at": "2026-08-19T00:00:00Z",
-                "windows": [
-                    {
-                        "id": "primary",
-                        "used_percent": 18,
-                        "resets_at": "2026-08-21T12:00:00Z",
-                    }
-                ],
+                "id": "primary",
+                "used_percent": 18,
+                "resets_at": "2026-08-21T12:00:00Z",
             }
         ],
+    }
+    usage = {
+        "generated_at": "2026-08-19T00:00:00Z",
+        "accounts": [snapshot],
     }
 
     def usage_response(route) -> None:
@@ -209,15 +209,32 @@ def assert_retained_snapshots_on_refresh_failure(browser: Browser) -> None:
             return
         if usage_reads == 2:
             route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=json.dumps({**usage, "generated_at": "2026-08-19T00:01:00Z"}),
+            )
+            return
+        if usage_reads == 3:
+            route.fulfill(
                 status=503,
                 content_type="application/json",
                 body=json.dumps({"detail": "Forced refresh failed"}),
             )
             return
-        recovered_usage = {**usage, "generated_at": "2026-08-19T00:05:00Z"}
+        recovered_snapshot = {**snapshot, "configured_email": "recovered@example.com"}
+        recovered_usage = {"generated_at": "2026-08-19T00:03:00Z", "accounts": [recovered_snapshot]}
         route.fulfill(status=200, content_type="application/json", body=json.dumps(recovered_usage))
 
     def accounts_response(route) -> None:
+        nonlocal account_reads
+        account_reads += 1
+        if account_reads in (2, 3):
+            route.fulfill(
+                status=503,
+                content_type="application/json",
+                body=json.dumps({"detail": "Account metadata failed"}),
+            )
+            return
         route.fulfill(status=200, content_type="application/json", body=json.dumps([]))
 
     page.route(f"{BASE_URL}/v1/usage*", usage_response)
@@ -228,6 +245,8 @@ def assert_retained_snapshots_on_refresh_failure(browser: Browser) -> None:
         account_cards = page.locator("#account-list .account-card")
         assert account_cards.count() == 1
         assert account_cards.first.is_visible()
+        assert usage_reads == 1
+        assert account_reads == 1
 
         page.locator("#refresh-button").click()
         page.wait_for_function(
@@ -236,17 +255,41 @@ def assert_retained_snapshots_on_refresh_failure(browser: Browser) -> None:
         )
         assert account_cards.count() == 1
         assert account_cards.first.is_visible()
-        assert "Forced refresh failed" in page.locator("#hero-copy").inner_text()
-        assert "Forced refresh failed" in page.locator("#summary").inner_text()
-        assert "Forced refresh failed" in page.locator("#live-announcement").inner_text()
+        account_only_announcement = page.locator("#live-announcement").inner_text()
+        assert "Account metadata failed" in account_only_announcement
+        assert "Usage data refreshed." not in account_only_announcement
+        assert usage_reads == 2
+        assert account_reads == 2
 
         page.locator("#refresh-button").click()
         page.wait_for_function(
             "document.querySelector('#refresh-button').disabled === false",
             timeout=60_000,
         )
-        assert "refreshed" in page.locator("#live-announcement").inner_text().lower()
+        combined_copy = (
+            page.locator("#hero-copy").inner_text() + page.locator("#summary").inner_text()
+        )
+        assert "Forced refresh failed" in combined_copy
+        assert "Account metadata failed" in combined_copy
+        assert account_cards.count() == 1
+        assert account_cards.first.is_visible()
         assert usage_reads == 3
+        assert account_reads == 3
+
+        page.locator("#refresh-button").click()
+        page.wait_for_function(
+            "document.querySelector('#refresh-button').disabled === false",
+            timeout=60_000,
+        )
+        assert "recovered@example.com" in account_cards.first.inner_text()
+        recovered_copy = (
+            page.locator("#hero-copy").inner_text() + page.locator("#summary").inner_text()
+        )
+        assert "Forced refresh failed" not in recovered_copy
+        assert "Account metadata failed" not in recovered_copy
+        assert "Usage data refreshed." in page.locator("#live-announcement").inner_text()
+        assert usage_reads == 4
+        assert account_reads == 4
         assert account_cards.count() == 1
         assert account_cards.first.is_visible()
     finally:

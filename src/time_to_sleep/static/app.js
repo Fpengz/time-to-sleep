@@ -167,6 +167,15 @@ function loadIssueMessage() {
   return [state.loadError, state.accountLoadError].filter(Boolean).join(" · ");
 }
 
+function refreshAnnouncement(usageResult, accountsResult) {
+  const usageFailed = usageResult.status === "rejected";
+  const accountsFailed = accountsResult.status === "rejected";
+  if (usageFailed && accountsFailed) return `Refresh failed: ${loadIssueMessage()}`;
+  if (usageFailed) return `Usage refresh failed: ${state.loadError}`;
+  if (accountsFailed) return `Account metadata refresh failed: ${state.accountLoadError}`;
+  return "Usage data refreshed.";
+}
+
 function renderHero() {
   const title = select("#page-title");
   const copy = select("#hero-copy");
@@ -179,11 +188,12 @@ function renderHero() {
   const total = state.snapshots.length;
   const clear = !total || counts.attention + counts.unavailable === 0;
   const loadIssue = loadIssueMessage();
+  const emptyFailure = !total && !state.loading && Boolean(loadIssue);
 
   title.replaceChildren(
-    element("span", { text: clear ? "A clear night" : "A little weather" }),
+    element("span", { text: emptyFailure ? "No clear reading" : clear ? "A clear night" : "A little weather" }),
     element("br"),
-    element("em", { text: clear ? "for your quota." : "in the forecast." }),
+    element("em", { text: emptyFailure ? "from the providers." : clear ? "for your quota." : "in the forecast." }),
   );
   if (!total) {
     copy.textContent = state.loading ? "Listening for provider usage…" : loadIssue || "Waiting for the first provider sync.";
@@ -526,33 +536,43 @@ function updateTimestamp(generatedAt) {
 }
 
 async function refresh(forceRefresh = false) {
+  const announcement = select("#live-announcement");
+  const accountList = select("#account-list");
+  const button = select("#refresh-button");
   state.loading = true;
   state.loadError = null;
   state.accountLoadError = null;
-  render();
-  const button = select("#refresh-button");
+  if (announcement) announcement.textContent = forceRefresh ? "Refreshing usage data…" : "Loading usage data…";
+  if (accountList) accountList.setAttribute("aria-busy", "true");
   if (button) {
     button.disabled = true;
     button.textContent = "Refreshing…";
   }
-  const [usageResult, accountsResult] = await Promise.allSettled([loadUsage(forceRefresh), loadAccounts()]);
-  if (usageResult.status === "fulfilled") {
-    state.snapshots = usageResult.value.accounts || [];
-    updateTimestamp(usageResult.value.generated_at);
-  } else {
-    state.loadError = usageResult.reason?.message || "Usage could not be loaded.";
-  }
-  if (accountsResult.status === "fulfilled") {
-    state.accounts = accountsResult.value || [];
-  } else {
-    state.accountLoadError = accountsResult.reason?.message || "Account metadata could not be loaded.";
-  }
-  state.loading = false;
-  render();
-  if (select("#live-announcement")) select("#live-announcement").textContent = usageResult.status === "fulfilled" ? "Usage data refreshed." : state.loadError;
-  if (button) {
-    button.disabled = false;
-    button.textContent = "Refresh usage";
+  let usageResult;
+  let accountsResult;
+  try {
+    render();
+    [usageResult, accountsResult] = await Promise.allSettled([loadUsage(forceRefresh), loadAccounts()]);
+    if (usageResult.status === "fulfilled") {
+      state.snapshots = usageResult.value.accounts || [];
+      updateTimestamp(usageResult.value.generated_at);
+    } else {
+      state.loadError = usageResult.reason?.message || "Usage could not be loaded.";
+    }
+    if (accountsResult.status === "fulfilled") {
+      state.accounts = accountsResult.value || [];
+    } else {
+      state.accountLoadError = accountsResult.reason?.message || "Account metadata could not be loaded.";
+    }
+  } finally {
+    state.loading = false;
+    if (accountList) accountList.removeAttribute("aria-busy");
+    if (button) {
+      button.disabled = false;
+      button.textContent = "Refresh usage";
+    }
+    if (announcement && usageResult && accountsResult) announcement.textContent = refreshAnnouncement(usageResult, accountsResult);
+    render();
   }
 }
 
