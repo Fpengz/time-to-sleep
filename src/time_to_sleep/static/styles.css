@@ -6,6 +6,7 @@
   --muted: #9aa79d;
   --line: #2b3732;
   --accent: #d6f66c;
+  --on-accent: #0f1413;
   --positive: #9ed8a4;
   --warning: #e0a36f;
   --danger: #ef8d83;
@@ -19,9 +20,10 @@
   --surface: #f5f1e8;
   --surface-raised: #fbfaf5;
   --text: #292b26;
-  --muted: #797970;
+  --muted: #5f625a;
   --line: #c8c5b9;
-  --accent: #6d8b32;
+  --accent: #526b21;
+  --on-accent: #fffdf5;
   --positive: #56835c;
   --warning: #b0653d;
   --danger: #a34f4c;
@@ -50,7 +52,16 @@ body {
 
 button, a, select { font: inherit; }
 button, select { color: inherit; }
-a { color: inherit; }
+a {
+  color: var(--text);
+  transition: color .18s ease;
+}
+
+a:hover {
+  color: var(--accent);
+  text-decoration-thickness: .08em;
+  text-underline-offset: .18em;
+}
 
 .app-shell {
   width: min(1220px, calc(100% - 64px));
@@ -80,6 +91,11 @@ a { color: inherit; }
   font-size: 14px;
   font-weight: 750;
   letter-spacing: -.02em;
+  text-decoration: none;
+}
+
+.brand:hover {
+  color: var(--accent);
   text-decoration: none;
 }
 
@@ -152,7 +168,7 @@ a { color: inherit; }
   margin-top: 20px;
   border-color: var(--accent);
   background: var(--accent);
-  color: var(--bg);
+  color: var(--on-accent);
 }
 
 .button-action:hover {
@@ -575,7 +591,18 @@ h1 em {
 }
 
 .setup-status-error { border-left-color: var(--danger); color: var(--danger); }
-.setup-link { color: var(--accent); font-size: 13px; font-weight: 750; }
+.setup-link {
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 750;
+  text-decoration-thickness: .08em;
+  text-underline-offset: .18em;
+}
+
+.setup-link:hover {
+  color: var(--text);
+  text-decoration-thickness: .14em;
+}
 .setup-code-label { margin: 0; color: var(--muted); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
 
 .setup-code {
