@@ -3,6 +3,7 @@ const state = {
   snapshots: [],
   accounts: [],
   loading: false,
+  refreshPromise: null,
   theme: document.documentElement.dataset.theme || "light",
   loadError: null,
   accountLoadError: null,
@@ -536,44 +537,52 @@ function updateTimestamp(generatedAt) {
 }
 
 async function refresh(forceRefresh = false) {
-  if (state.loading) return;
-  const announcement = select("#live-announcement");
-  const accountList = select("#account-list");
-  const button = select("#refresh-button");
-  state.loading = true;
-  state.loadError = null;
-  state.accountLoadError = null;
-  if (announcement) announcement.textContent = forceRefresh ? "Refreshing usage data…" : "Loading usage data…";
-  if (accountList) accountList.setAttribute("aria-busy", "true");
-  if (button) {
-    button.disabled = true;
-    button.textContent = "Refreshing…";
-  }
-  let usageResult;
-  let accountsResult;
-  try {
-    render();
-    [usageResult, accountsResult] = await Promise.allSettled([loadUsage(forceRefresh), loadAccounts()]);
-    if (usageResult.status === "fulfilled") {
-      state.snapshots = usageResult.value.accounts || [];
-      updateTimestamp(usageResult.value.generated_at);
-    } else {
-      state.loadError = usageResult.reason?.message || "Usage could not be loaded.";
-    }
-    if (accountsResult.status === "fulfilled") {
-      state.accounts = accountsResult.value || [];
-    } else {
-      state.accountLoadError = accountsResult.reason?.message || "Account metadata could not be loaded.";
-    }
-  } finally {
-    state.loading = false;
-    if (accountList) accountList.removeAttribute("aria-busy");
+  if (state.refreshPromise) return state.refreshPromise;
+  const activeRefresh = (async () => {
+    const announcement = select("#live-announcement");
+    const accountList = select("#account-list");
+    const button = select("#refresh-button");
+    state.loading = true;
+    state.loadError = null;
+    state.accountLoadError = null;
+    if (announcement) announcement.textContent = forceRefresh ? "Refreshing usage data…" : "Loading usage data…";
+    if (accountList) accountList.setAttribute("aria-busy", "true");
     if (button) {
-      button.disabled = false;
-      button.textContent = "Refresh usage";
+      button.disabled = true;
+      button.textContent = "Refreshing…";
     }
-    if (announcement && usageResult && accountsResult) announcement.textContent = refreshAnnouncement(usageResult, accountsResult);
-    render();
+    let usageResult;
+    let accountsResult;
+    try {
+      render();
+      [usageResult, accountsResult] = await Promise.allSettled([loadUsage(forceRefresh), loadAccounts()]);
+      if (usageResult.status === "fulfilled") {
+        state.snapshots = usageResult.value.accounts || [];
+        updateTimestamp(usageResult.value.generated_at);
+      } else {
+        state.loadError = usageResult.reason?.message || "Usage could not be loaded.";
+      }
+      if (accountsResult.status === "fulfilled") {
+        state.accounts = accountsResult.value || [];
+      } else {
+        state.accountLoadError = accountsResult.reason?.message || "Account metadata could not be loaded.";
+      }
+    } finally {
+      state.loading = false;
+      if (accountList) accountList.removeAttribute("aria-busy");
+      if (button) {
+        button.disabled = false;
+        button.textContent = "Refresh usage";
+      }
+      if (announcement && usageResult && accountsResult) announcement.textContent = refreshAnnouncement(usageResult, accountsResult);
+      render();
+    }
+  })();
+  state.refreshPromise = activeRefresh;
+  try {
+    return await activeRefresh;
+  } finally {
+    if (state.refreshPromise === activeRefresh) state.refreshPromise = null;
   }
 }
 

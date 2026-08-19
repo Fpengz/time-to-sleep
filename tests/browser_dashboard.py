@@ -1,5 +1,6 @@
 import json
 import os
+import time
 
 from playwright.sync_api import Browser, Page, sync_playwright
 
@@ -357,6 +358,76 @@ def assert_initial_failure_headline(
         page.close()
 
 
+def assert_refresh_coalesces_overlapping_calls(
+    browser: Browser, console_errors: list[str], page_errors: list[str]
+) -> None:
+    page = browser.new_page(viewport={"width": 1100, "height": 900}, color_scheme="light")
+    attach_page_error_listeners(page, console_errors, page_errors)
+    usage_requests = 0
+    snapshot = {
+        "account_id": "codex-primary",
+        "provider": "codex",
+        "configured_email": "primary@example.com",
+        "status": "live",
+        "source": "test",
+        "observed_at": "2026-08-19T00:00:00Z",
+        "retrieved_at": "2026-08-19T00:00:00Z",
+        "windows": [
+            {
+                "id": "primary",
+                "used_percent": 18,
+                "resets_at": "2026-08-21T12:00:00Z",
+            }
+        ],
+    }
+    usage = {"generated_at": "2026-08-19T00:00:00Z", "accounts": [snapshot]}
+    console_start = len(console_errors)
+    page_start = len(page_errors)
+
+    def usage_response(route) -> None:
+        nonlocal usage_requests
+        usage_requests += 1
+        if usage_requests == 2:
+            time.sleep(0.25)
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(usage))
+
+    def accounts_response(route) -> None:
+        route.fulfill(status=200, content_type="application/json", body=json.dumps([]))
+
+    page.route(f"{BASE_URL}/v1/usage*", usage_response)
+    page.route(f"{BASE_URL}/v1/accounts", accounts_response)
+    try:
+        page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30_000)
+        page.wait_for_function(
+            "document.querySelector('#refresh-button').disabled === false",
+            timeout=60_000,
+        )
+        assert usage_requests == 1
+
+        overlap = page.evaluate(
+            """
+            async () => {
+                const settled = [];
+                const first = window.refresh(true).then(() => settled.push("first"));
+                const second = window.refresh(true).then(() => settled.push("second"));
+                await new Promise((resolve) => setTimeout(resolve, 0));
+                const during = [...settled];
+                await Promise.all([first, second]);
+                return { during, settled };
+            }
+            """
+        )
+        assert overlap["during"] == []
+        assert sorted(overlap["settled"]) == ["first", "second"]
+        assert usage_requests == 2
+        assert page.locator("#refresh-button").inner_text() == "Refresh usage"
+        assert page.locator("#account-list").get_attribute("aria-busy") is None
+        assert console_errors[console_start:] == []
+        assert page_errors[page_start:] == []
+    finally:
+        page.close()
+
+
 def main() -> None:
     console_errors: list[str] = []
     page_errors: list[str] = []
@@ -372,6 +443,7 @@ def main() -> None:
             assert_setup_flow(browser, console_errors, page_errors)
             assert_retained_snapshots_on_refresh_failure(browser, console_errors, page_errors)
             assert_initial_failure_headline(browser, console_errors, page_errors)
+            assert_refresh_coalesces_overlapping_calls(browser, console_errors, page_errors)
         finally:
             browser.close()
     unexpected_console_errors = [
