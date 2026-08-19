@@ -318,8 +318,10 @@ function renderAccounts() {
 }
 
 function stopLoginPolling() {
-  if (state.setup?.pollTimer) clearTimeout(state.setup.pollTimer);
-  if (state.setup) state.setup.pollTimer = null;
+  if (!state.setup) return;
+  if (state.setup.pollTimer) clearTimeout(state.setup.pollTimer);
+  state.setup.pollTimer = null;
+  state.setup.pollGeneration = (state.setup.pollGeneration || 0) + 1;
 }
 
 const setupMessages = {
@@ -447,6 +449,7 @@ function openSetup(accountId) {
     challenge: null,
     status: "idle",
     pollTimer: null,
+    pollGeneration: 0,
     error: null,
     message: null,
   };
@@ -482,16 +485,16 @@ async function startLogin() {
   }
 }
 
-async function pollLogin(accountId, attemptId) {
-  if (!state.setup || state.setup.attemptId !== attemptId) return;
+async function pollLogin(accountId, attemptId, pollGeneration = state.setup?.pollGeneration) {
+  if (!state.setup || state.setup.attemptId !== attemptId || state.setup.pollGeneration !== pollGeneration) return;
   try {
     const attempt = await getJson(`/v1/accounts/${accountId}/login/${attemptId}`);
-    if (!state.setup || state.setup.attemptId !== attemptId) return;
+    if (!state.setup || state.setup.attemptId !== attemptId || state.setup.pollGeneration !== pollGeneration) return;
     state.setup.status = attempt.status;
     state.setup.message = attempt.message || null;
     renderSetup();
     if (attempt.status === "pending") {
-      state.setup.pollTimer = setTimeout(() => pollLogin(accountId, attemptId), 2000);
+      state.setup.pollTimer = setTimeout(() => pollLogin(accountId, attemptId, pollGeneration), 2000);
       return;
     }
     stopLoginPolling();
@@ -505,7 +508,7 @@ async function pollLogin(accountId, attemptId) {
       }
     }
   } catch (error) {
-    if (!state.setup || state.setup.attemptId !== attemptId) return;
+    if (!state.setup || state.setup.attemptId !== attemptId || state.setup.pollGeneration !== pollGeneration) return;
     stopLoginPolling();
     state.setup.status = "error";
     state.setup.error = error.message;
@@ -526,6 +529,7 @@ async function cancelSetup() {
   stopLoginPolling();
   try {
     await getJson(`/v1/accounts/${setup.accountId}/login/${setup.attemptId}/cancel`, { method: "POST" });
+    stopLoginPolling();
     setup.status = "cancelled";
     renderSetup();
     if (select("#live-announcement")) select("#live-announcement").textContent = setupStatusMessage(setup.status);
