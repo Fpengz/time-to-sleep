@@ -207,11 +207,15 @@ def assert_retained_snapshots_on_refresh_failure(browser: Browser) -> None:
         if usage_reads == 1:
             route.fulfill(status=200, content_type="application/json", body=json.dumps(usage))
             return
-        route.fulfill(
-            status=503,
-            content_type="application/json",
-            body=json.dumps({"detail": "Forced refresh failed"}),
-        )
+        if usage_reads == 2:
+            route.fulfill(
+                status=503,
+                content_type="application/json",
+                body=json.dumps({"detail": "Forced refresh failed"}),
+            )
+            return
+        recovered_usage = {**usage, "generated_at": "2026-08-19T00:05:00Z"}
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(recovered_usage))
 
     def accounts_response(route) -> None:
         route.fulfill(status=200, content_type="application/json", body=json.dumps([]))
@@ -235,6 +239,16 @@ def assert_retained_snapshots_on_refresh_failure(browser: Browser) -> None:
         assert "Forced refresh failed" in page.locator("#hero-copy").inner_text()
         assert "Forced refresh failed" in page.locator("#summary").inner_text()
         assert "Forced refresh failed" in page.locator("#live-announcement").inner_text()
+
+        page.locator("#refresh-button").click()
+        page.wait_for_function(
+            "document.querySelector('#refresh-button').disabled === false",
+            timeout=60_000,
+        )
+        assert "refreshed" in page.locator("#live-announcement").inner_text().lower()
+        assert usage_reads == 3
+        assert account_cards.count() == 1
+        assert account_cards.first.is_visible()
     finally:
         page.close()
 
