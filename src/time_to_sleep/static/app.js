@@ -518,11 +518,13 @@ async function pollLogin(accountId, attemptId, pollGeneration = state.setup?.pol
     stopLoginPolling(setup);
     if (select("#live-announcement")) select("#live-announcement").textContent = setupStatusMessage(attempt.status);
     if (attempt.status === "succeeded") {
+      const successAnnouncement = setupStatusMessage("succeeded");
       await refresh(true);
       if (state.setup === setup && setup.attemptId === attemptId) {
         stopLoginPolling(setup);
         state.setup = null;
         renderSetup();
+        if (select("#live-announcement")) select("#live-announcement").textContent = successAnnouncement;
       }
     }
   } catch (error) {

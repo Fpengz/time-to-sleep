@@ -256,7 +256,19 @@ def assert_setup_flow(browser: Browser, console_errors: list[str], page_errors: 
         "document.querySelector('#refresh-button').disabled === true",
         timeout=5_000,
     )
+    page.wait_for_function(
+        "document.querySelector('#setup-panel')?.dataset.status === 'succeeded'",
+        timeout=10_000,
+    )
+    assert (
+        setup_panel.locator('[role="status"]').inner_text()
+        == "Login verified for the configured account."
+    )
     page.wait_for_selector("#setup-panel", state="hidden", timeout=10_000)
+    assert (
+        page.locator("#live-announcement").inner_text()
+        == "Login verified for the configured account."
+    )
     assert status_reads >= 2
     assert usage_reads == 3
     assert usage_completed == 3
