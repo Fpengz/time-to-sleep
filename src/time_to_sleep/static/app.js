@@ -163,6 +163,10 @@ function snapshotCounts() {
   };
 }
 
+function loadIssueMessage() {
+  return [state.loadError, state.accountLoadError].filter(Boolean).join(" · ");
+}
+
 function renderHero() {
   const title = select("#page-title");
   const copy = select("#hero-copy");
@@ -174,6 +178,7 @@ function renderHero() {
   const candidate = resetCandidates()[0] || null;
   const total = state.snapshots.length;
   const clear = !total || counts.attention + counts.unavailable === 0;
+  const loadIssue = loadIssueMessage();
 
   title.replaceChildren(
     element("span", { text: clear ? "A clear night" : "A little weather" }),
@@ -181,14 +186,14 @@ function renderHero() {
     element("em", { text: clear ? "for your quota." : "in the forecast." }),
   );
   if (!total) {
-    copy.textContent = state.loading ? "Listening for provider usage…" : state.loadError || "Waiting for the first provider sync.";
+    copy.textContent = state.loading ? "Listening for provider usage…" : loadIssue || "Waiting for the first provider sync.";
   } else if (clear) {
     copy.textContent = `${counts.live} of ${total} ${total === 1 ? "account is" : "accounts are"} reporting live.`;
   } else {
     const needsAttention = counts.attention + counts.unavailable;
     copy.textContent = `${counts.live} of ${total} ${total === 1 ? "account is" : "accounts are"} live; ${needsAttention} need${needsAttention === 1 ? "s" : ""} attention.`;
   }
-  if (total && state.loadError) copy.textContent += ` Last sync issue: ${state.loadError}`;
+  if (total && loadIssue) copy.textContent += ` Last sync issue: ${loadIssue}`;
 
   if (candidate) {
     const date = new Date(candidate.window.resets_at);
@@ -210,7 +215,7 @@ function renderSummary() {
   const cards = [
     ["Live now", `${counts.live} / ${state.snapshots.length}`, `${counts.live} reporting live`],
     ["Attention", String(counts.attention + counts.unavailable), counts.attention + counts.unavailable ? "accounts need a look" : "nothing needs a look"],
-    ["Last sync", select("#last-updated")?.textContent?.replace("Synced ", "") || "—", state.loadError || state.accountLoadError || "local provider read"],
+    ["Last sync", select("#last-updated")?.textContent?.replace("Synced ", "") || "—", loadIssueMessage() || "local provider read"],
   ];
   for (const [label, value, detail] of cards) {
     const card = element("div", { className: "summary-card" });

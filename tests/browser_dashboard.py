@@ -176,6 +176,69 @@ def assert_setup_flow(browser: Browser) -> None:
     page.close()
 
 
+def assert_retained_snapshots_on_refresh_failure(browser: Browser) -> None:
+    page = browser.new_page(viewport={"width": 1100, "height": 900}, color_scheme="light")
+    usage_reads = 0
+    usage = {
+        "generated_at": "2026-08-19T00:00:00Z",
+        "accounts": [
+            {
+                "account_id": "codex-primary",
+                "provider": "codex",
+                "configured_email": "primary@example.com",
+                "status": "live",
+                "source": "test",
+                "observed_at": "2026-08-19T00:00:00Z",
+                "retrieved_at": "2026-08-19T00:00:00Z",
+                "windows": [
+                    {
+                        "id": "primary",
+                        "used_percent": 18,
+                        "resets_at": "2026-08-21T12:00:00Z",
+                    }
+                ],
+            }
+        ],
+    }
+
+    def usage_response(route) -> None:
+        nonlocal usage_reads
+        usage_reads += 1
+        if usage_reads == 1:
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(usage))
+            return
+        route.fulfill(
+            status=503,
+            content_type="application/json",
+            body=json.dumps({"detail": "Forced refresh failed"}),
+        )
+
+    def accounts_response(route) -> None:
+        route.fulfill(status=200, content_type="application/json", body=json.dumps([]))
+
+    page.route(f"{BASE_URL}/v1/usage*", usage_response)
+    page.route(f"{BASE_URL}/v1/accounts", accounts_response)
+    try:
+        page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30_000)
+        page.wait_for_load_state("networkidle", timeout=60_000)
+        account_cards = page.locator("#account-list .account-card")
+        assert account_cards.count() == 1
+        assert account_cards.first.is_visible()
+
+        page.locator("#refresh-button").click()
+        page.wait_for_function(
+            "document.querySelector('#refresh-button').disabled === false",
+            timeout=60_000,
+        )
+        assert account_cards.count() == 1
+        assert account_cards.first.is_visible()
+        assert "Forced refresh failed" in page.locator("#hero-copy").inner_text()
+        assert "Forced refresh failed" in page.locator("#summary").inner_text()
+        assert "Forced refresh failed" in page.locator("#live-announcement").inner_text()
+    finally:
+        page.close()
+
+
 def main() -> None:
     console_errors: list[str] = []
     page_errors: list[str] = []
@@ -195,6 +258,7 @@ def main() -> None:
         try:
             assert_dashboard(page)
             assert_setup_flow(browser)
+            assert_retained_snapshots_on_refresh_failure(browser)
         finally:
             browser.close()
     if console_errors or page_errors:
