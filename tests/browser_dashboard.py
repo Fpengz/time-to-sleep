@@ -4,6 +4,21 @@ import os
 from playwright.sync_api import Browser, Page, sync_playwright
 
 BASE_URL = "http://127.0.0.1:4141"
+EXPECTED_HTTP_FAILURE_CONSOLE = (
+    "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+)
+
+
+def attach_page_error_listeners(
+    page: Page, console_errors: list[str], page_errors: list[str]
+) -> None:
+    page.on(
+        "console",
+        lambda message: (
+            console_errors.append(message.text) if message.type == "error" else None
+        ),
+    )
+    page.on("pageerror", lambda error: page_errors.append(str(error)))
 
 
 def assert_no_horizontal_overflow(page: Page) -> None:
@@ -53,8 +68,11 @@ def assert_dashboard(page: Page) -> None:
     assert_no_horizontal_overflow(page)
 
 
-def assert_setup_flow(browser: Browser) -> None:
+def assert_setup_flow(
+    browser: Browser, console_errors: list[str], page_errors: list[str]
+) -> None:
     page = browser.new_page(viewport={"width": 1100, "height": 900}, color_scheme="light")
+    attach_page_error_listeners(page, console_errors, page_errors)
     page.context.grant_permissions(["clipboard-read", "clipboard-write"], origin=BASE_URL)
     snapshots = [
         {
@@ -176,8 +194,11 @@ def assert_setup_flow(browser: Browser) -> None:
     page.close()
 
 
-def assert_retained_snapshots_on_refresh_failure(browser: Browser) -> None:
+def assert_retained_snapshots_on_refresh_failure(
+    browser: Browser, console_errors: list[str], page_errors: list[str]
+) -> None:
     page = browser.new_page(viewport={"width": 1100, "height": 900}, color_scheme="light")
+    attach_page_error_listeners(page, console_errors, page_errors)
     usage_reads = 0
     account_reads = 0
     snapshot = {
@@ -245,6 +266,8 @@ def assert_retained_snapshots_on_refresh_failure(browser: Browser) -> None:
         account_cards = page.locator("#account-list .account-card")
         assert account_cards.count() == 1
         assert account_cards.first.is_visible()
+        assert page.locator("#refresh-button").inner_text() == "Refresh usage"
+        assert page.locator("#account-list").get_attribute("aria-busy") is None
         assert usage_reads == 1
         assert account_reads == 1
 
@@ -255,6 +278,8 @@ def assert_retained_snapshots_on_refresh_failure(browser: Browser) -> None:
         )
         assert account_cards.count() == 1
         assert account_cards.first.is_visible()
+        assert page.locator("#refresh-button").inner_text() == "Refresh usage"
+        assert page.locator("#account-list").get_attribute("aria-busy") is None
         account_only_announcement = page.locator("#live-announcement").inner_text()
         assert "Account metadata failed" in account_only_announcement
         assert "Usage data refreshed." not in account_only_announcement
@@ -266,9 +291,15 @@ def assert_retained_snapshots_on_refresh_failure(browser: Browser) -> None:
             "document.querySelector('#refresh-button').disabled === false",
             timeout=60_000,
         )
+        assert page.locator("#refresh-button").inner_text() == "Refresh usage"
+        assert page.locator("#account-list").get_attribute("aria-busy") is None
         combined_copy = (
             page.locator("#hero-copy").inner_text() + page.locator("#summary").inner_text()
         )
+        combined_announcement = page.locator("#live-announcement").inner_text()
+        assert "Refresh failed" in combined_announcement
+        assert "Forced refresh failed" in combined_announcement
+        assert "Account metadata failed" in combined_announcement
         assert "Forced refresh failed" in combined_copy
         assert "Account metadata failed" in combined_copy
         assert account_cards.count() == 1
@@ -281,6 +312,8 @@ def assert_retained_snapshots_on_refresh_failure(browser: Browser) -> None:
             "document.querySelector('#refresh-button').disabled === false",
             timeout=60_000,
         )
+        assert page.locator("#refresh-button").inner_text() == "Refresh usage"
+        assert page.locator("#account-list").get_attribute("aria-busy") is None
         assert "recovered@example.com" in account_cards.first.inner_text()
         recovered_copy = (
             page.locator("#hero-copy").inner_text() + page.locator("#summary").inner_text()
@@ -296,6 +329,38 @@ def assert_retained_snapshots_on_refresh_failure(browser: Browser) -> None:
         page.close()
 
 
+def assert_initial_failure_headline(
+    browser: Browser, console_errors: list[str], page_errors: list[str]
+) -> None:
+    page = browser.new_page(viewport={"width": 1100, "height": 900}, color_scheme="light")
+    attach_page_error_listeners(page, console_errors, page_errors)
+
+    def usage_response(route) -> None:
+        route.fulfill(
+            status=503,
+            content_type="application/json",
+            body=json.dumps({"detail": "Initial provider failure"}),
+        )
+
+    def accounts_response(route) -> None:
+        route.fulfill(status=200, content_type="application/json", body=json.dumps([]))
+
+    page.route(f"{BASE_URL}/v1/usage*", usage_response)
+    page.route(f"{BASE_URL}/v1/accounts", accounts_response)
+    try:
+        page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30_000)
+        page.wait_for_function(
+            "document.querySelector('#refresh-button').disabled === false",
+            timeout=60_000,
+        )
+        assert "No clear reading" in page.locator("#page-title").inner_text()
+        assert "Initial provider failure" in page.locator("#hero-copy").inner_text()
+        assert page.locator("#refresh-button").inner_text() == "Refresh usage"
+        assert page.locator("#account-list").get_attribute("aria-busy") is None
+    finally:
+        page.close()
+
+
 def main() -> None:
     console_errors: list[str] = []
     page_errors: list[str] = []
@@ -305,21 +370,21 @@ def main() -> None:
             executable_path=os.environ.get("PLAYWRIGHT_EXECUTABLE_PATH"),
         )
         page = browser.new_page(viewport={"width": 1440, "height": 1000}, color_scheme="light")
-        page.on(
-            "console",
-            lambda message: (
-                console_errors.append(message.text) if message.type == "error" else None
-            ),
-        )
-        page.on("pageerror", lambda error: page_errors.append(str(error)))
+        attach_page_error_listeners(page, console_errors, page_errors)
         try:
             assert_dashboard(page)
-            assert_setup_flow(browser)
-            assert_retained_snapshots_on_refresh_failure(browser)
+            assert_setup_flow(browser, console_errors, page_errors)
+            assert_retained_snapshots_on_refresh_failure(browser, console_errors, page_errors)
+            assert_initial_failure_headline(browser, console_errors, page_errors)
         finally:
             browser.close()
-    if console_errors or page_errors:
-        raise AssertionError(f"browser errors: console={console_errors}, page={page_errors}")
+    unexpected_console_errors = [
+        message for message in console_errors if message != EXPECTED_HTTP_FAILURE_CONSOLE
+    ]
+    if unexpected_console_errors or page_errors:
+        raise AssertionError(
+            f"browser errors: console={unexpected_console_errors}, page={page_errors}"
+        )
 
 
 if __name__ == "__main__":

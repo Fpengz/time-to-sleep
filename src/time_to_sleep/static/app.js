@@ -536,6 +536,7 @@ function updateTimestamp(generatedAt) {
 }
 
 async function refresh(forceRefresh = false) {
+  if (state.loading) return;
   const announcement = select("#live-announcement");
   const accountList = select("#account-list");
   const button = select("#refresh-button");
