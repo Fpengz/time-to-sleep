@@ -105,6 +105,7 @@ function statusLabel(status) {
     live: "Live",
     cached: "Cached",
     stale: "Stale",
+    rate_limited: "Rate limited",
     unavailable: "Unavailable",
   }[status] || "Unknown";
 }
@@ -158,7 +159,7 @@ function renderSummary() {
   }
   const live = state.snapshots.filter((item) => item.status === "live").length;
   const attention = state.snapshots.filter((item) => ["cached", "stale"].includes(item.status)).length;
-  const unavailable = state.snapshots.filter((item) => item.status === "unavailable").length;
+  const unavailable = state.snapshots.filter((item) => ["unavailable", "rate_limited"].includes(item.status)).length;
   const resetCandidates = state.snapshots
     .flatMap((snapshot) => (snapshot.windows || []).map((window) => ({ snapshot, window })))
     .filter((candidate) => Number.isFinite(Date.parse(candidate.window.resets_at)));
@@ -182,7 +183,7 @@ function renderSummary() {
   }
   if (unavailable) {
     const card = element("div", { className: "summary-card summary-card-alert" });
-    append(card, element("div", { className: "summary-label", text: "Action" }), element("div", { className: "summary-value", text: String(unavailable) }), element("div", { className: "summary-detail", text: unavailable === 1 ? "account unavailable" : "accounts unavailable" }));
+    append(card, element("div", { className: "summary-label", text: "Action" }), element("div", { className: "summary-value", text: String(unavailable) }), element("div", { className: "summary-detail", text: unavailable === 1 ? "account needs attention" : "accounts need attention" }));
     summary.append(card);
   }
   summary.classList.toggle("summary-grid-four", unavailable > 0);

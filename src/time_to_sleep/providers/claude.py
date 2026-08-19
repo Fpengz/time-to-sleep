@@ -2,11 +2,12 @@ import json
 import os
 import platform
 import subprocess
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from datetime import UTC, datetime, timedelta
 from getpass import getuser
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -14,7 +15,10 @@ from time_to_sleep.domain import AccountConfig, AccountStatus, ErrorCode, UsageS
 from time_to_sleep.providers.parsers import parse_claude_plan_history
 
 CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
+CLAUDE_WEB_USAGE_URL = "https://claude.ai/api/organizations/{organization_id}/usage"
 _FALLBACK_MAX_AGE = timedelta(minutes=15)
+
+WebUsageFetcher = Callable[[AccountConfig], Awaitable[Mapping[str, Any] | None]]
 
 
 class ClaudeCredentialSource:
@@ -83,9 +87,12 @@ class ClaudeProvider:
         self,
         credential_source_factory: Callable[[AccountConfig], ClaudeCredentialSource] | None = None,
         include_desktop_history: bool = True,
+        web_usage_fetcher: WebUsageFetcher | None = None,
     ) -> None:
         self.credential_source_factory = credential_source_factory
         self.include_desktop_history = include_desktop_history
+        self.web_usage_fetcher = web_usage_fetcher or self._fetch_configured_web_usage
+        self._rate_limited_until: datetime | None = None
 
     async def fetch(self, account: AccountConfig) -> UsageSnapshot:
         retrieved_at = datetime.now(UTC)
@@ -101,6 +108,17 @@ class ClaudeProvider:
                 retrieved_at,
                 ErrorCode.NOT_AUTHENTICATED,
                 "No Claude OAuth credential is available",
+            )
+
+        if self._rate_limited_until is not None and retrieved_at < self._rate_limited_until:
+            web_snapshot = await self._fetch_web_snapshot(account, retrieved_at)
+            if web_snapshot is not None:
+                return web_snapshot
+            return self._with_fallback(
+                account,
+                retrieved_at,
+                ErrorCode.RATE_LIMITED,
+                self._rate_limit_message(self._rate_limited_until),
             )
 
         try:
@@ -120,11 +138,15 @@ class ClaudeProvider:
                     "Claude OAuth credential is expired; run claude auth login",
                 )
             if response.status_code == 429:
+                self._rate_limited_until = retrieved_at + self._retry_after(response)
+                web_snapshot = await self._fetch_web_snapshot(account, retrieved_at)
+                if web_snapshot is not None:
+                    return web_snapshot
                 return self._with_fallback(
                     account,
                     retrieved_at,
                     ErrorCode.RATE_LIMITED,
-                    "Claude usage endpoint is rate limited; retry after the cache window",
+                    self._rate_limit_message(self._rate_limited_until),
                 )
             response.raise_for_status()
             windows = self._parse_usage(response.json())
@@ -150,6 +172,71 @@ class ClaudeProvider:
                 ErrorCode.PARSE_ERROR,
                 f"Claude usage request failed: {error}",
             )
+
+    async def _fetch_web_snapshot(
+        self, account: AccountConfig, retrieved_at: datetime
+    ) -> UsageSnapshot | None:
+        try:
+            document = await self.web_usage_fetcher(account)
+            if document is None:
+                return None
+            return UsageSnapshot(
+                account_id=account.id,
+                provider=account.provider,
+                configured_email=account.email,
+                observed_email=account.email,
+                status=AccountStatus.LIVE,
+                source="claude_web",
+                observed_at=retrieved_at,
+                retrieved_at=retrieved_at,
+                windows=self._parse_usage(document),
+            )
+        except (httpx.HTTPError, ValueError, TypeError, KeyError):
+            return None
+
+    @staticmethod
+    async def _fetch_configured_web_usage(account: AccountConfig) -> Mapping[str, Any] | None:
+        del account
+        session_cookie = os.environ.get("CLAUDE_WEB_COOKIE") or os.environ.get(
+            "CLAUDE_WEB_SESSION_KEY"
+        )
+        organization_id = os.environ.get("CLAUDE_WEB_ORGANIZATION_ID") or os.environ.get(
+            "CLAUDE_ORGANIZATION_ID"
+        )
+        if not session_cookie or not organization_id:
+            return None
+        url = CLAUDE_WEB_USAGE_URL.format(organization_id=quote(organization_id, safe=""))
+        cookie = session_cookie if "=" in session_cookie else f"sessionKey={session_cookie}"
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(
+                url,
+                headers={
+                    "Accept": "application/json",
+                    "Cookie": cookie,
+                    "Origin": "https://claude.ai",
+                    "Referer": "https://claude.ai/",
+                    "User-Agent": "time-to-sleep/1.0",
+                },
+            )
+        if response.status_code in {401, 403, 404, 429}:
+            return None
+        response.raise_for_status()
+        document = response.json()
+        return document if isinstance(document, Mapping) else None
+
+    @staticmethod
+    def _retry_after(response: httpx.Response) -> timedelta:
+        value = response.headers.get("Retry-After")
+        try:
+            seconds = max(1, int(value)) if value is not None else 300
+        except ValueError:
+            seconds = 300
+        return timedelta(seconds=seconds)
+
+    @staticmethod
+    def _rate_limit_message(retry_at: datetime) -> str:
+        minutes = max(1, int((retry_at - datetime.now(UTC)).total_seconds() // 60))
+        return f"Claude usage endpoint is rate limited; retry after about {minutes} minutes"
 
     @staticmethod
     def _parse_usage(document: Any) -> list[UsageWindow]:
@@ -203,7 +290,11 @@ class ClaudeProvider:
                 provider=account.provider,
                 configured_email=account.email,
                 observed_email=account.email,
-                status=AccountStatus.UNAVAILABLE,
+                status=(
+                    AccountStatus.RATE_LIMITED
+                    if error_code is ErrorCode.RATE_LIMITED
+                    else AccountStatus.UNAVAILABLE
+                ),
                 source="claude_oauth",
                 retrieved_at=retrieved_at,
                 message=message,
@@ -215,19 +306,27 @@ class ClaudeProvider:
             else AccountStatus.STALE
         )
         if status is AccountStatus.STALE:
+            stale_status = (
+                AccountStatus.RATE_LIMITED
+                if error_code is ErrorCode.RATE_LIMITED
+                else AccountStatus.UNAVAILABLE
+            )
+            stale_error = (
+                error_code if error_code is ErrorCode.RATE_LIMITED else ErrorCode.NO_RECENT_DATA
+            )
             return UsageSnapshot(
                 account_id=account.id,
                 provider=account.provider,
                 configured_email=account.email,
                 observed_email=account.email,
-                status=AccountStatus.UNAVAILABLE,
+                status=stale_status,
                 source="claude_plan_history",
                 observed_at=parsed.observed_at,
                 retrieved_at=retrieved_at,
                 message=(
                     f"{message}; latest local sample is stale ({parsed.observed_at.isoformat()})"
                 ),
-                error_code=ErrorCode.NO_RECENT_DATA,
+                error_code=stale_error,
             )
         return UsageSnapshot(
             account_id=account.id,

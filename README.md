@@ -98,8 +98,13 @@ their app-server process is closed in every terminal state.
 - Codex uses short-lived `codex app-server --stdio` JSON-RPC sessions for identity
   and live rate limits, with recent rollout data as a bounded fallback.
 - Claude first tries the OAuth usage endpoint using credentials discovered from the
-  environment, macOS Keychain, or the configured credential file. When live OAuth
-  usage is unavailable, it reads recent `plan-usage-history.json` data when present.
+  environment, macOS Keychain, or the configured credential file. If Anthropic
+  rate-limits that endpoint, the provider reports `rate_limited`, honors the
+  server-provided retry window, and never presents stale history as current usage.
+  An optional web-session source can be enabled with `CLAUDE_WEB_ORGANIZATION_ID`
+  and `CLAUDE_WEB_SESSION_KEY` (or `CLAUDE_WEB_COOKIE`). Keep the session value in
+  the process environment only; do not commit it. Recent
+  `plan-usage-history.json` data remains a bounded fallback.
 - Antigravity discovers the local app or `agy` language server, starts `agy` when
   needed, and reads its `RetrieveUserQuotaSummary` response for the Gemini and
   Claude/GPT shared pools. It verifies the returned Google account before showing

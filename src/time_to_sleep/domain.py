@@ -12,6 +12,7 @@ class AccountStatus(StrEnum):
     LIVE = "live"
     CACHED = "cached"
     STALE = "stale"
+    RATE_LIMITED = "rate_limited"
     UNAVAILABLE = "unavailable"
 
 
