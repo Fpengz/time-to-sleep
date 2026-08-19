@@ -449,6 +449,12 @@ h1 em {
 .status-unavailable .status-dot { border-radius: 0; }
 .status-note { max-width: 340px; }
 
+.account-card.status-unavailable,
+.account-card.status-rate_limited {
+  padding-left: 22px;
+  border-left: 2px solid var(--warning);
+}
+
 .window-list {
   display: grid;
   grid-column: 2;
@@ -582,6 +588,7 @@ h1 em {
 
 .setup-status {
   flex-basis: 100%;
+  max-width: 680px;
   margin: 0;
   padding-left: 12px;
   border-left: 2px solid var(--positive);
@@ -591,6 +598,11 @@ h1 em {
 }
 
 .setup-status-error { border-left-color: var(--danger); color: var(--danger); }
+.setup-status-error::before { content: "Attention · "; font-weight: 700; }
+.setup-panel[data-status="pending"] { border-color: var(--accent); }
+.setup-panel[data-status="error"],
+.setup-panel[data-status="failed"],
+.setup-panel[data-status="expired"] { border-color: var(--danger); }
 .setup-link {
   color: var(--accent);
   font-size: 13px;
@@ -603,6 +615,10 @@ h1 em {
   color: var(--text);
   text-decoration-thickness: .14em;
 }
+
+.account-message,
+.account-error { max-width: 720px; }
+
 .setup-code-label { margin: 0; color: var(--muted); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
 
 .setup-code {

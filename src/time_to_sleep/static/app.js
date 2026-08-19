@@ -322,16 +322,19 @@ function stopLoginPolling() {
   if (state.setup) state.setup.pollTimer = null;
 }
 
+const setupMessages = {
+  idle: "Choose a sign-in method to begin.",
+  starting: "Opening an isolated Codex session…",
+  pending: "Login attempt active. Finish the sign-in in the new window or with the device code.",
+  succeeded: "Login verified for the configured account.",
+  failed: "Codex completed, but the account identity did not match.",
+  cancelled: "Login setup cancelled. You can start another attempt when ready.",
+  expired: "This login attempt expired. Start a new one when ready.",
+  error: "The login session could not be started. Check the message and try again.",
+};
+
 function setupStatusMessage(status) {
-  return {
-    starting: "Opening an isolated Codex session…",
-    pending: "Waiting for Codex to confirm the login…",
-    succeeded: "Login verified for the configured account.",
-    failed: "Codex completed, but the account identity did not match.",
-    cancelled: "Login setup cancelled.",
-    expired: "This login attempt expired. Start a new one when ready.",
-    error: "The login session could not be started.",
-  }[status] || "Choose a login method to begin.";
+  return setupMessages[status] || setupMessages.idle;
 }
 
 async function copyDeviceCode(code, button) {
@@ -354,10 +357,12 @@ function renderSetup() {
   panel.replaceChildren();
   if (!state.setup) {
     panel.hidden = true;
+    delete panel.dataset.status;
     return;
   }
   panel.hidden = false;
   const setup = state.setup;
+  panel.dataset.status = setup.status;
   const title = element("div", { className: "setup-heading" });
   const titleCopy = element("div");
   append(titleCopy, element("p", { className: "eyebrow", text: "Account setup" }), element("h2", { id: "setup-title", text: "Connect Codex" }), element("p", { className: "setup-copy", text: `Finish the sign-in for ${setup.email || setup.accountId}. Use a private window or device code if another ChatGPT account is active.` }));
@@ -389,15 +394,18 @@ function renderSetup() {
   append(controls, methodField, start, cancel);
   panel.append(controls);
 
+  const statusClass = ["failed", "expired", "error"].includes(setup.status)
+    ? "setup-status setup-status-error"
+    : "setup-status";
+  const status = element("p", {
+    className: statusClass,
+    text: setup.error || setup.message || setupStatusMessage(setup.status),
+    attributes: { role: "status", "aria-live": "polite" },
+  });
+
   if (setup.challenge) {
     const challenge = element("div", { className: "setup-challenge" });
-    const statusClass = ["failed", "expired", "error"].includes(setup.status)
-      ? "setup-status setup-status-error"
-      : "setup-status";
-    append(challenge, element("p", {
-      className: statusClass,
-      text: setup.message || setupStatusMessage(setup.status),
-    }));
+    challenge.append(status);
     if (setup.challenge.auth_url) {
       const link = element("a", { className: "setup-link", text: "Open authorization page ↗", attributes: { href: setup.challenge.auth_url, target: "_blank", rel: "noreferrer" } });
       challenge.append(link);
@@ -423,8 +431,8 @@ function renderSetup() {
       append(challenge, code, codeValue);
     }
     panel.append(challenge);
-  } else if (setup.status === "error") {
-    panel.append(element("p", { className: "setup-status setup-status-error", text: setup.error || setupStatusMessage(setup.status) }));
+  } else {
+    panel.append(status);
   }
 }
 
@@ -466,8 +474,10 @@ async function startLogin() {
     renderSetup();
     await pollLogin(setup.accountId, setup.attemptId);
   } catch (error) {
+    stopLoginPolling();
     setup.status = "error";
     setup.error = error.message;
+    setup.message = null;
     renderSetup();
   }
 }
@@ -484,6 +494,7 @@ async function pollLogin(accountId, attemptId) {
       state.setup.pollTimer = setTimeout(() => pollLogin(accountId, attemptId), 2000);
       return;
     }
+    stopLoginPolling();
     if (select("#live-announcement")) select("#live-announcement").textContent = setupStatusMessage(attempt.status);
     if (attempt.status === "succeeded") {
       await refresh(true);
@@ -495,8 +506,10 @@ async function pollLogin(accountId, attemptId) {
     }
   } catch (error) {
     if (!state.setup || state.setup.attemptId !== attemptId) return;
+    stopLoginPolling();
     state.setup.status = "error";
     state.setup.error = error.message;
+    state.setup.message = null;
     renderSetup();
   }
 }
@@ -517,8 +530,10 @@ async function cancelSetup() {
     renderSetup();
     if (select("#live-announcement")) select("#live-announcement").textContent = setupStatusMessage(setup.status);
   } catch (error) {
+    stopLoginPolling();
     setup.status = "error";
     setup.error = error.message;
+    setup.message = null;
     renderSetup();
   }
 }
