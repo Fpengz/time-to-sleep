@@ -364,6 +364,7 @@ def assert_refresh_coalesces_overlapping_calls(
     page = browser.new_page(viewport={"width": 1100, "height": 900}, color_scheme="light")
     attach_page_error_listeners(page, console_errors, page_errors)
     usage_requests = 0
+    usage_urls = []
     snapshot = {
         "account_id": "codex-primary",
         "provider": "codex",
@@ -387,7 +388,8 @@ def assert_refresh_coalesces_overlapping_calls(
     def usage_response(route) -> None:
         nonlocal usage_requests
         usage_requests += 1
-        if usage_requests == 2:
+        usage_urls.append(route.request.url)
+        if usage_requests in {2, 3}:
             time.sleep(0.25)
         route.fulfill(status=200, content_type="application/json", body=json.dumps(usage))
 
@@ -420,6 +422,25 @@ def assert_refresh_coalesces_overlapping_calls(
         assert overlap["during"] == []
         assert sorted(overlap["settled"]) == ["first", "second"]
         assert usage_requests == 2
+        assert page.locator("#refresh-button").inner_text() == "Refresh usage"
+        assert page.locator("#account-list").get_attribute("aria-busy") is None
+
+        mixed_start = usage_requests
+        mixed_overlap = page.evaluate(
+            """
+            async () => {
+                const settled = [];
+                const normal = window.refresh(false).then(() => settled.push("normal"));
+                const forced = window.refresh(true).then(() => settled.push("forced"));
+                await Promise.all([normal, forced]);
+                return settled;
+            }
+            """
+        )
+        assert sorted(mixed_overlap) == ["forced", "normal"]
+        assert usage_requests == mixed_start + 2
+        assert usage_urls[-2] == f"{BASE_URL}/v1/usage"
+        assert usage_urls[-1].endswith("/v1/usage?force_refresh=true")
         assert page.locator("#refresh-button").inner_text() == "Refresh usage"
         assert page.locator("#account-list").get_attribute("aria-busy") is None
         assert console_errors[console_start:] == []

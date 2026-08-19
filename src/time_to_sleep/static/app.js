@@ -4,6 +4,7 @@ const state = {
   accounts: [],
   loading: false,
   refreshPromise: null,
+  refreshForce: false,
   theme: document.documentElement.dataset.theme || "light",
   loadError: null,
   accountLoadError: null,
@@ -537,7 +538,16 @@ function updateTimestamp(generatedAt) {
 }
 
 async function refresh(forceRefresh = false) {
-  if (state.refreshPromise) return state.refreshPromise;
+  if (state.refreshPromise) {
+    if (forceRefresh && !state.refreshForce) {
+      return state.refreshPromise.then(
+        () => refresh(true),
+        () => refresh(true),
+      );
+    }
+    return state.refreshPromise;
+  }
+  state.refreshForce = forceRefresh;
   const activeRefresh = (async () => {
     const announcement = select("#live-announcement");
     const accountList = select("#account-list");
@@ -582,7 +592,10 @@ async function refresh(forceRefresh = false) {
   try {
     return await activeRefresh;
   } finally {
-    if (state.refreshPromise === activeRefresh) state.refreshPromise = null;
+    if (state.refreshPromise === activeRefresh) {
+      state.refreshPromise = null;
+      state.refreshForce = false;
+    }
   }
 }
 
