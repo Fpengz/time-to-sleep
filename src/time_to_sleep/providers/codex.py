@@ -80,7 +80,7 @@ class SubprocessJsonRpcTransport:
         self._next_id += 1
         await self._write({"method": method, "id": request_id, "params": params or {}})
         while True:
-            message = await self._read()
+            message = await self._read(timeout=self.timeout)
             if message.get("id") != request_id:
                 continue
             if "error" in message:
@@ -96,10 +96,11 @@ class SubprocessJsonRpcTransport:
         self.process.stdin.write((json.dumps(message) + "\n").encode())
         await self.process.stdin.drain()
 
-    async def _read(self) -> dict[str, Any]:
+    async def _read(self, *, timeout: float | None) -> dict[str, Any]:
         if self.process.stdout is None:
             raise CodexRpcError("Codex app-server stdout is unavailable")
-        raw = await asyncio.wait_for(self.process.stdout.readline(), timeout=self.timeout)
+        read = self.process.stdout.readline()
+        raw = await read if timeout is None else await asyncio.wait_for(read, timeout=timeout)
         if not raw:
             raise CodexRpcError("Codex app-server exited before responding")
         try:
@@ -111,7 +112,7 @@ class SubprocessJsonRpcTransport:
         return message
 
     async def next_message(self) -> dict[str, Any]:
-        return await self._read()
+        return await self._read(timeout=None)
 
     async def close(self) -> None:
         if self.process.returncode is not None:

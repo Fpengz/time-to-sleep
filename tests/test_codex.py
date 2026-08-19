@@ -1,11 +1,26 @@
+import asyncio
+import json
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
 from time_to_sleep.domain import AccountConfig, AccountStatus, ErrorCode
-from time_to_sleep.providers.codex import CodexProvider
+from time_to_sleep.providers.codex import CodexProvider, SubprocessJsonRpcTransport
+
+
+class DelayedStdout:
+    async def readline(self) -> bytes:
+        await asyncio.sleep(0.01)
+        return (json.dumps({"method": "account/login/completed"}) + "\n").encode()
+
+
+class FakeProcess:
+    def __init__(self) -> None:
+        self.stdin = None
+        self.stdout = DelayedStdout()
+        self.returncode = None
 
 
 class FakeTransport:
@@ -69,6 +84,17 @@ async def test_codex_adapter_reads_identity_and_rate_limits(tmp_path: Path) -> N
     assert snapshot.windows[0].window_minutes == 10080
     assert "initialized" in transport.notifications
     assert transport.closed
+
+
+@pytest.mark.asyncio
+async def test_login_transport_waits_for_late_notifications() -> None:
+    transport = SubprocessJsonRpcTransport(
+        cast(asyncio.subprocess.Process, FakeProcess()), timeout=0.001
+    )
+
+    message = await transport.next_message()
+
+    assert message["method"] == "account/login/completed"
 
 
 @pytest.mark.asyncio
