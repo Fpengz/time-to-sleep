@@ -147,15 +147,18 @@ def assert_setup_flow(browser: Browser, console_errors: list[str], page_errors: 
         """
         (() => {
             const originalFetch = window.fetch.bind(window);
+            window.__usageFetchEvents = [];
             let usageResponses = 0;
             window.fetch = async (...args) => {
-                const response = await originalFetch(...args);
                 const request = typeof args[0] === "string" ? args[0] : args[0].url;
+                const response = await originalFetch(...args);
                 if (request.includes("/v1/usage")) {
                     usageResponses += 1;
+                    window.__usageFetchEvents.push(`received-${usageResponses}`);
                     if (usageResponses === 2) {
                         await new Promise((resolve) => setTimeout(resolve, 2250));
                     }
+                    window.__usageFetchEvents.push(`released-${usageResponses}`);
                 }
                 return response;
             };
@@ -228,6 +231,17 @@ def assert_setup_flow(browser: Browser, console_errors: list[str], page_errors: 
     assert usage_completed == 3
     assert usage_urls[1] == f"{BASE_URL}/v1/usage"
     assert usage_urls[2].endswith("/v1/usage?force_refresh=true")
+    usage_events = page.evaluate("window.__usageFetchEvents")
+    for event in (
+        "received-1",
+        "released-1",
+        "received-2",
+        "released-2",
+        "received-3",
+        "released-3",
+    ):
+        assert event in usage_events
+    assert usage_events.index("released-2") < usage_events.index("received-3")
     page.close()
 
 
