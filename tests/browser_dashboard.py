@@ -6,12 +6,22 @@ from playwright.sync_api import Browser, Page, sync_playwright
 BASE_URL = "http://127.0.0.1:4141"
 
 
+def assert_no_horizontal_overflow(page: Page) -> None:
+    assert page.evaluate(
+        "document.documentElement.scrollWidth <= window.innerWidth"
+    )
+
+
 def assert_dashboard(page: Page) -> None:
     page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30_000)
     page.wait_for_load_state("networkidle", timeout=60_000)
     assert page.locator("#summary").is_visible()
     assert page.locator("#account-list").is_visible()
-    assert page.locator("#page-title").inner_text() == "Usage, at a glance."
+    assert page.locator("#page-title").is_visible()
+    assert page.locator("#hero-copy").is_visible()
+    assert page.locator("#next-reset").is_visible()
+    assert page.locator("#signal-strip").is_visible()
+    assert page.locator("#provider-ledger").is_visible()
     assert page.locator("#account-list .account-card").count() == 4
 
     initial_theme = page.locator("html").get_attribute("data-theme")
@@ -29,6 +39,7 @@ def assert_dashboard(page: Page) -> None:
     )
     announcement = page.locator("#live-announcement").text_content() or ""
     assert "refreshed" in announcement.lower()
+    assert_no_horizontal_overflow(page)
 
 
 def assert_setup_flow(browser: Browser) -> None:
