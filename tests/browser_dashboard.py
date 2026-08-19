@@ -129,11 +129,40 @@ def assert_setup_flow(browser: Browser, console_errors: list[str], page_errors: 
     ]
     usage = {"generated_at": "2026-08-18T00:00:00Z", "accounts": snapshots}
     status_reads = 0
+    usage_reads = 0
+    usage_urls = []
+    usage_completed = 0
 
     def fulfill(route, payload) -> None:
         route.fulfill(status=200, content_type="application/json", body=json.dumps(payload))
 
-    page.route(f"{BASE_URL}/v1/usage*", lambda route: fulfill(route, usage))
+    def usage_response(route) -> None:
+        nonlocal usage_reads, usage_completed
+        usage_reads += 1
+        usage_urls.append(route.request.url)
+        fulfill(route, usage)
+        usage_completed += 1
+
+    page.add_init_script(
+        """
+        (() => {
+            const originalFetch = window.fetch.bind(window);
+            let usageResponses = 0;
+            window.fetch = async (...args) => {
+                const response = await originalFetch(...args);
+                const request = typeof args[0] === "string" ? args[0] : args[0].url;
+                if (request.includes("/v1/usage")) {
+                    usageResponses += 1;
+                    if (usageResponses === 2) {
+                        await new Promise((resolve) => setTimeout(resolve, 2250));
+                    }
+                }
+                return response;
+            };
+        })();
+        """
+    )
+    page.route(f"{BASE_URL}/v1/usage*", usage_response)
     page.route(f"{BASE_URL}/v1/accounts", lambda route: fulfill(route, []))
     page.route(
         f"{BASE_URL}/v1/accounts/codex-secondary/login/start",
@@ -171,6 +200,8 @@ def assert_setup_flow(browser: Browser, console_errors: list[str], page_errors: 
     )
     page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30_000)
     page.wait_for_load_state("networkidle", timeout=10_000)
+    assert usage_reads == 1
+    assert usage_urls[0] == f"{BASE_URL}/v1/usage"
     next_reset_detail = page.locator("#next-reset-detail")
     assert "Claude Code" in next_reset_detail.inner_text()
     assert "Five Hour" in next_reset_detail.inner_text()
@@ -186,8 +217,17 @@ def assert_setup_flow(browser: Browser, console_errors: list[str], page_errors: 
     copy_button.click()
     page.wait_for_function("navigator.clipboard.readText().then((value) => value === 'ABCD-EFGH')")
     assert copy_button.inner_text() == "Copied"
+    page.evaluate("void window.refresh(false)")
+    page.wait_for_function(
+        "document.querySelector('#refresh-button').disabled === true",
+        timeout=5_000,
+    )
     page.wait_for_selector("#setup-panel", state="hidden", timeout=10_000)
     assert status_reads >= 2
+    assert usage_reads == 3
+    assert usage_completed == 3
+    assert usage_urls[1] == f"{BASE_URL}/v1/usage"
+    assert usage_urls[2].endswith("/v1/usage?force_refresh=true")
     page.close()
 
 
@@ -391,7 +431,16 @@ def assert_refresh_coalesces_overlapping_calls(
         usage_urls.append(route.request.url)
         if usage_requests in {2, 3}:
             time.sleep(0.25)
-        route.fulfill(status=200, content_type="application/json", body=json.dumps(usage))
+        configured_email = (
+            "forced@example.com"
+            if "force_refresh=true" in route.request.url
+            else "normal@example.com"
+        )
+        payload = {
+            **usage,
+            "accounts": [{**snapshot, "configured_email": configured_email}],
+        }
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(payload))
 
     def accounts_response(route) -> None:
         route.fulfill(status=200, content_type="application/json", body=json.dumps([]))
@@ -441,6 +490,7 @@ def assert_refresh_coalesces_overlapping_calls(
         assert usage_requests == mixed_start + 2
         assert usage_urls[-2] == f"{BASE_URL}/v1/usage"
         assert usage_urls[-1].endswith("/v1/usage?force_refresh=true")
+        assert "forced@example.com" in page.locator("#account-list").inner_text()
         assert page.locator("#refresh-button").inner_text() == "Refresh usage"
         assert page.locator("#account-list").get_attribute("aria-busy") is None
         assert console_errors[console_start:] == []

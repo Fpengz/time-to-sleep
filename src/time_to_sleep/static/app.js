@@ -485,7 +485,7 @@ async function pollLogin(accountId, attemptId) {
     }
     if (select("#live-announcement")) select("#live-announcement").textContent = setupStatusMessage(attempt.status);
     if (attempt.status === "succeeded") {
-      await refresh();
+      await refresh(true);
       if (state.setup?.attemptId === attemptId) {
         stopLoginPolling();
         state.setup = null;
