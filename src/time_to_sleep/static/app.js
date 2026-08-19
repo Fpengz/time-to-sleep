@@ -188,6 +188,7 @@ function renderHero() {
     const needsAttention = counts.attention + counts.unavailable;
     copy.textContent = `${counts.live} of ${total} ${total === 1 ? "account is" : "accounts are"} live; ${needsAttention} need${needsAttention === 1 ? "s" : ""} attention.`;
   }
+  if (total && state.loadError) copy.textContent += ` Last sync issue: ${state.loadError}`;
 
   if (candidate) {
     const date = new Date(candidate.window.resets_at);
@@ -209,7 +210,7 @@ function renderSummary() {
   const cards = [
     ["Live now", `${counts.live} / ${state.snapshots.length}`, `${counts.live} reporting live`],
     ["Attention", String(counts.attention + counts.unavailable), counts.attention + counts.unavailable ? "accounts need a look" : "nothing needs a look"],
-    ["Last sync", select("#last-updated")?.textContent?.replace("Synced ", "") || "—", state.accountLoadError || "local provider read"],
+    ["Last sync", select("#last-updated")?.textContent?.replace("Synced ", "") || "—", state.loadError || state.accountLoadError || "local provider read"],
   ];
   for (const [label, value, detail] of cards) {
     const card = element("div", { className: "summary-card" });

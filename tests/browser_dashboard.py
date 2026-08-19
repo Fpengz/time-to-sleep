@@ -22,6 +22,9 @@ def assert_dashboard(page: Page) -> None:
     page.wait_for_load_state("networkidle", timeout=60_000)
     assert page.locator("#summary").is_visible()
     assert page.locator("#account-list").is_visible()
+    summary_labels = page.locator("#summary .summary-label").all_text_contents()
+    for label in ("Live now", "Attention", "Last sync"):
+        assert label in summary_labels
     assert page.locator("#page-title").is_visible()
     assert page.locator("#hero-copy").is_visible()
     assert page.locator("#next-reset").is_visible()
