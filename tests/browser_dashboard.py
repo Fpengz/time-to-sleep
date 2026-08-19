@@ -34,6 +34,8 @@ def assert_no_horizontal_overflow(page: Page) -> None:
 def assert_dashboard(page: Page) -> None:
     page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30_000)
     page.wait_for_load_state("networkidle", timeout=60_000)
+    assert page.locator(".skip-link").get_attribute("href") == "#main-content"
+    assert page.locator("#main-content").count() == 1
     assert page.locator("#summary").is_visible()
     assert page.locator("#account-list").is_visible()
     summary_labels = page.locator("#summary .summary-label").all_text_contents()
@@ -51,11 +53,15 @@ def assert_dashboard(page: Page) -> None:
 
     initial_theme = page.locator("html").get_attribute("data-theme")
     assert initial_theme in {"light", "dark"}
+    theme_color = page.locator('meta[name="theme-color"]')
+    expected_colors = {"dark": "#0f1413", "light": "#eee9df"}
+    assert theme_color.get_attribute("content") == expected_colors[initial_theme]
     page.locator("#theme-toggle").click()
     changed_theme = page.locator("html").get_attribute("data-theme")
     assert changed_theme in {"light", "dark"}
     assert changed_theme != initial_theme
     assert page.evaluate("localStorage.getItem('time-to-sleep-theme')") == changed_theme
+    assert theme_color.get_attribute("content") == expected_colors[changed_theme]
 
     page.locator("#refresh-button").click()
     page.wait_for_function(
@@ -271,6 +277,224 @@ def assert_setup_flow(browser: Browser, console_errors: list[str], page_errors: 
     page.close()
 
 
+def assert_setup_terminal_states(
+    browser: Browser, console_errors: list[str], page_errors: list[str]
+) -> None:
+    page = browser.new_page(viewport={"width": 1100, "height": 900}, color_scheme="light")
+    attach_page_error_listeners(page, console_errors, page_errors)
+    snapshots = [
+        {
+            "account_id": "codex-secondary",
+            "provider": "codex",
+            "configured_email": "secondary@example.com",
+            "status": "unavailable",
+            "source": "test",
+            "observed_at": "2026-08-18T00:00:00Z",
+            "retrieved_at": "2026-08-18T00:00:00Z",
+            "windows": [],
+        }
+    ]
+    usage = {"generated_at": "2026-08-18T00:00:00Z", "accounts": snapshots}
+    starts = 0
+    status_reads: dict[str, int] = {}
+    pending_cancel_route = None
+    pending_expired_start = None
+
+    def fulfill(route, payload, status: int = 200) -> None:
+        route.fulfill(status=status, content_type="application/json", body=json.dumps(payload))
+
+    def login_response(route) -> None:
+        nonlocal starts, pending_cancel_route, pending_expired_start
+        path = route.request.url.split("/login/", 1)[1]
+        if path == "start":
+            starts += 1
+            attempt_id = {
+                1: "attempt-cancel",
+                2: "attempt-race",
+                3: "attempt-b",
+                4: "attempt-failed",
+                5: "attempt-expired",
+                6: "attempt-error",
+            }[starts]
+            if attempt_id == "attempt-expired":
+                pending_expired_start = route
+                return
+            fulfill(
+                route,
+                {
+                    "attempt_id": attempt_id,
+                    "method": "device_code",
+                    "status": "pending",
+                    "verification_url": f"https://auth.example.test/{attempt_id}",
+                    "user_code": f"{attempt_id.upper()}-CODE",
+                },
+            )
+            return
+        if path.endswith("/cancel"):
+            if path.startswith("attempt-race/"):
+                pending_cancel_route = route
+                return
+            fulfill(route, {"status": "cancelled"})
+            return
+
+        attempt_id = path
+        status_reads[attempt_id] = status_reads.get(attempt_id, 0) + 1
+        read_number = status_reads[attempt_id]
+        if attempt_id in {"attempt-cancel", "attempt-race", "attempt-b"}:
+            status = "succeeded" if attempt_id == "attempt-b" and read_number >= 2 else "pending"
+            fulfill(route, {"attempt_id": attempt_id, "status": status})
+        elif attempt_id == "attempt-failed":
+            fulfill(
+                route,
+                {
+                    "attempt_id": attempt_id,
+                    "status": "failed",
+                    "message": "The configured account did not match.",
+                },
+            )
+        elif attempt_id == "attempt-expired":
+            fulfill(
+                route,
+                {
+                    "attempt_id": attempt_id,
+                    "status": "expired",
+                    "message": "The login window expired.",
+                },
+            )
+        else:
+            fulfill(route, {"detail": "Status endpoint failed"}, status=503)
+
+    page.add_init_script(
+        """
+        (() => {
+            const originalFetch = window.fetch.bind(window);
+            window.__setupEvents = [];
+            window.fetch = async (...args) => {
+                const request = typeof args[0] === "string" ? args[0] : args[0].url;
+                if (request.includes("/v1/accounts/codex-secondary/login/")) {
+                    window.__setupEvents.push(request);
+                }
+                return originalFetch(...args);
+            };
+        })();
+        """
+    )
+    page.route(
+        f"{BASE_URL}/v1/usage*",
+        lambda route: fulfill(route, usage),
+    )
+    page.route(
+        f"{BASE_URL}/v1/accounts",
+        lambda route: fulfill(route, []),
+    )
+    page.route(
+        f"{BASE_URL}/v1/accounts/codex-secondary/login/**",
+        login_response,
+    )
+
+    def open_setup() -> None:
+        page.get_by_role("button", name="Set up account").click()
+        page.wait_for_function(
+            "document.querySelector('#setup-panel')?.dataset.status === 'idle'",
+            timeout=5_000,
+        )
+
+    def start_login() -> None:
+        page.get_by_role("button", name="Start login").click()
+
+    def assert_terminal(status: str, copy: str) -> None:
+        page.wait_for_function(
+            f"document.querySelector('#setup-panel')?.dataset.status === '{status}'",
+            timeout=10_000,
+        )
+        panel = page.locator("#setup-panel")
+        assert panel.get_attribute("data-status") == status
+        assert copy.lower() in panel.locator('[role="status"]').inner_text().lower()
+        assert page.get_by_role("button", name="Start login").is_enabled()
+        assert page.get_by_role("button", name="Close", exact=True).is_visible()
+        assert page.locator("#setup-method").is_enabled()
+        assert page.locator("#refresh-button").is_enabled()
+
+    try:
+        page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30_000)
+        page.wait_for_load_state("networkidle", timeout=60_000)
+
+        # Normal cancellation remains visible as a terminal state.
+        open_setup()
+        start_login()
+        page.wait_for_function(
+            "document.querySelector('#setup-panel')?.dataset.status === 'pending'",
+            timeout=5_000,
+        )
+        page.get_by_role("button", name="Cancel attempt").click()
+        assert_terminal("cancelled", "You can start another attempt")
+
+        # Hold setup A's cancel response, start setup B, then release A. B must
+        # keep polling; this exercises instance-scoped generation cleanup.
+        start_login()
+        page.wait_for_function(
+            "document.querySelector('#setup-panel')?.dataset.status === 'pending'",
+            timeout=5_000,
+        )
+        page.get_by_role("button", name="Cancel attempt").click()
+        page.wait_for_function(
+            "window.__setupEvents.some((url) => url.endsWith('/attempt-race/cancel'))",
+            timeout=5_000,
+        )
+        page.get_by_role("button", name="Close account setup").click()
+        page.wait_for_selector("#setup-panel", state="hidden", timeout=5_000)
+        open_setup()
+        start_login()
+        page.wait_for_function(
+            "document.querySelector('#setup-panel')?.dataset.status === 'pending'",
+            timeout=5_000,
+        )
+        page.wait_for_function(
+            "window.__setupEvents.some((url) => url.endsWith('/attempt-b'))",
+            timeout=5_000,
+        )
+        assert pending_cancel_route is not None
+        fulfill(pending_cancel_route, {"status": "cancelled"})
+        pending_cancel_route = None
+        page.wait_for_function(
+            "window.__setupEvents.filter((url) => url.endsWith('/attempt-b')).length >= 2",
+            timeout=10_000,
+        )
+        page.wait_for_selector("#setup-panel", state="hidden", timeout=10_000)
+
+        # Failed, expired, and polling-error states retain explicit copy and
+        # settle their controls for another attempt.
+        open_setup()
+        start_login()
+        assert_terminal("failed", "configured account did not match")
+
+        start_login()
+        page.wait_for_function(
+            "document.querySelector('#setup-panel')?.dataset.status === 'starting'",
+            timeout=5_000,
+        )
+        assert page.locator(".setup-code").count() == 0
+        assert page.locator(".setup-link").count() == 0
+        assert pending_expired_start is not None
+        fulfill(
+            pending_expired_start,
+            {
+                "attempt_id": "attempt-expired",
+                "method": "device_code",
+                "status": "pending",
+                "verification_url": "https://auth.example.test/attempt-expired",
+                "user_code": "ATTEMPT-EXPIRED-CODE",
+            },
+        )
+        pending_expired_start = None
+        assert_terminal("expired", "login window expired")
+
+        start_login()
+        assert_terminal("error", "status endpoint failed")
+    finally:
+        page.close()
+
+
 def assert_retained_snapshots_on_refresh_failure(
     browser: Browser, console_errors: list[str], page_errors: list[str]
 ) -> None:
@@ -411,14 +635,20 @@ def assert_narrow_dark_viewport(
 ) -> None:
     page = browser.new_page(viewport={"width": 390, "height": 844}, color_scheme="dark")
     attach_page_error_listeners(page, console_errors, page_errors)
+    page.add_init_script("localStorage.removeItem('time-to-sleep-theme');")
     try:
         page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30_000)
         page.wait_for_load_state("networkidle", timeout=60_000)
         assert page.locator("html").get_attribute("data-theme") == "dark"
+        assert page.locator('meta[name="theme-color"]').get_attribute("content") == "#0f1413"
         assert page.locator("#provider-ledger").is_visible()
         assert page.locator("#account-list").is_visible()
         assert page.locator("#refresh-button").is_visible()
         assert page.locator("#refresh-button").is_enabled()
+        page.locator("#theme-toggle").click()
+        assert page.locator("html").get_attribute("data-theme") == "light"
+        assert page.locator('meta[name="theme-color"]').get_attribute("content") == "#eee9df"
+        page.evaluate("localStorage.removeItem('time-to-sleep-theme')")
         assert_no_horizontal_overflow(page)
     finally:
         page.close()
@@ -725,6 +955,7 @@ def main() -> None:
         try:
             assert_dashboard(page)
             assert_setup_flow(browser, console_errors, page_errors)
+            assert_setup_terminal_states(browser, console_errors, page_errors)
             assert_retained_snapshots_on_refresh_failure(browser, console_errors, page_errors)
             assert_initial_failure_headline(browser, console_errors, page_errors)
             assert_refresh_coalesces_overlapping_calls(browser, console_errors, page_errors)

@@ -1,4 +1,8 @@
 const THEME_KEY = "time-to-sleep-theme";
+const THEME_COLORS = {
+  dark: "#0f1413",
+  light: "#eee9df",
+};
 const state = {
   snapshots: [],
   accounts: [],
@@ -67,9 +71,15 @@ function systemTheme() {
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
+function updateThemeColor(theme) {
+  const meta = select('meta[name="theme-color"]');
+  if (meta) meta.setAttribute("content", THEME_COLORS[theme] || THEME_COLORS.light);
+}
+
 function applyTheme(theme, persist = false) {
   state.theme = theme;
   document.documentElement.dataset.theme = theme;
+  updateThemeColor(theme);
   if (persist) localStorage.setItem(THEME_KEY, theme);
   const toggle = select("#theme-toggle");
   if (!toggle) return;
@@ -464,9 +474,12 @@ function openSetup(accountId) {
 async function startLogin() {
   if (!state.setup || ["starting", "pending"].includes(state.setup.status)) return;
   const setup = state.setup;
+  stopLoginPolling(setup);
   setup.status = "starting";
   setup.error = null;
   setup.message = null;
+  setup.attemptId = null;
+  setup.challenge = null;
   renderSetup();
   try {
     const challenge = await getJson(`/v1/accounts/${setup.accountId}/login/start`, {

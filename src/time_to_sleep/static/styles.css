@@ -57,6 +57,27 @@ a {
   transition: color .18s ease;
 }
 
+.skip-link {
+  position: absolute;
+  top: 8px;
+  left: 16px;
+  z-index: 10;
+  padding: 8px 12px;
+  background: var(--accent);
+  color: var(--on-accent);
+  text-decoration: none;
+  transform: translateY(-180%);
+  transition: transform .18s ease;
+}
+
+.skip-link:hover {
+  color: var(--on-accent);
+}
+
+.skip-link:focus-visible {
+  transform: translateY(0);
+}
+
 a:hover {
   color: var(--accent);
   text-decoration-thickness: .08em;
