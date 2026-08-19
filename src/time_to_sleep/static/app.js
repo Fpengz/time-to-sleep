@@ -317,11 +317,11 @@ function renderAccounts() {
   state.snapshots.forEach((snapshot) => list.append(renderAccount(snapshot)));
 }
 
-function stopLoginPolling() {
-  if (!state.setup) return;
-  if (state.setup.pollTimer) clearTimeout(state.setup.pollTimer);
-  state.setup.pollTimer = null;
-  state.setup.pollGeneration = (state.setup.pollGeneration || 0) + 1;
+function stopLoginPolling(setup = state.setup) {
+  if (!setup) return;
+  if (setup.pollTimer) clearTimeout(setup.pollTimer);
+  setup.pollTimer = null;
+  setup.pollGeneration = (setup.pollGeneration || 0) + 1;
 }
 
 const setupMessages = {
@@ -370,7 +370,8 @@ function renderSetup() {
   append(titleCopy, element("p", { className: "eyebrow", text: "Account setup" }), element("h2", { id: "setup-title", text: "Connect Codex" }), element("p", { className: "setup-copy", text: `Finish the sign-in for ${setup.email || setup.accountId}. Use a private window or device code if another ChatGPT account is active.` }));
   const close = element("button", { className: "icon-button setup-close", text: "×", attributes: { type: "button", "aria-label": "Close account setup" } });
   close.addEventListener("click", () => {
-    stopLoginPolling();
+    if (state.setup !== setup) return;
+    stopLoginPolling(setup);
     state.setup = null;
     renderSetup();
   });
@@ -386,13 +387,15 @@ function renderSetup() {
   method.append(browserOption, deviceOption);
   method.value = setup.method;
   method.disabled = ["starting", "pending"].includes(setup.status);
-  method.addEventListener("change", () => { state.setup.method = method.value; });
+  method.addEventListener("change", () => {
+    if (state.setup === setup) state.setup.method = method.value;
+  });
   methodField.append(method);
   const start = element("button", { className: "button button-action", text: setup.status === "starting" ? "Starting…" : setup.status === "pending" ? "Waiting…" : "Start login", attributes: { type: "button" } });
   start.disabled = ["starting", "pending"].includes(setup.status);
   start.addEventListener("click", startLogin);
   const cancel = element("button", { className: "button button-secondary", text: setup.attemptId && setup.status === "pending" ? "Cancel attempt" : "Close", attributes: { type: "button" } });
-  cancel.addEventListener("click", cancelSetup);
+  cancel.addEventListener("click", () => cancelSetup(setup));
   append(controls, methodField, start, cancel);
   panel.append(controls);
 
@@ -471,13 +474,15 @@ async function startLogin() {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ method: setup.method }),
     });
+    if (state.setup !== setup) return;
     setup.attemptId = challenge.attempt_id;
     setup.challenge = challenge;
     setup.status = "pending";
     renderSetup();
-    await pollLogin(setup.accountId, setup.attemptId);
+    await pollLogin(setup.accountId, setup.attemptId, setup.pollGeneration, setup);
   } catch (error) {
-    stopLoginPolling();
+    if (state.setup !== setup) return;
+    stopLoginPolling(setup);
     setup.status = "error";
     setup.error = error.message;
     setup.message = null;
@@ -485,56 +490,57 @@ async function startLogin() {
   }
 }
 
-async function pollLogin(accountId, attemptId, pollGeneration = state.setup?.pollGeneration) {
-  if (!state.setup || state.setup.attemptId !== attemptId || state.setup.pollGeneration !== pollGeneration) return;
+async function pollLogin(accountId, attemptId, pollGeneration = state.setup?.pollGeneration, setup = state.setup) {
+  if (!setup || state.setup !== setup || setup.attemptId !== attemptId || setup.pollGeneration !== pollGeneration) return;
   try {
     const attempt = await getJson(`/v1/accounts/${accountId}/login/${attemptId}`);
-    if (!state.setup || state.setup.attemptId !== attemptId || state.setup.pollGeneration !== pollGeneration) return;
-    state.setup.status = attempt.status;
-    state.setup.message = attempt.message || null;
+    if (state.setup !== setup || setup.attemptId !== attemptId || setup.pollGeneration !== pollGeneration) return;
+    setup.status = attempt.status;
+    setup.message = attempt.message || null;
     renderSetup();
     if (attempt.status === "pending") {
-      state.setup.pollTimer = setTimeout(() => pollLogin(accountId, attemptId, pollGeneration), 2000);
+      setup.pollTimer = setTimeout(() => pollLogin(accountId, attemptId, pollGeneration, setup), 2000);
       return;
     }
-    stopLoginPolling();
+    stopLoginPolling(setup);
     if (select("#live-announcement")) select("#live-announcement").textContent = setupStatusMessage(attempt.status);
     if (attempt.status === "succeeded") {
       await refresh(true);
-      if (state.setup?.attemptId === attemptId) {
-        stopLoginPolling();
+      if (state.setup === setup && setup.attemptId === attemptId) {
+        stopLoginPolling(setup);
         state.setup = null;
         renderSetup();
       }
     }
   } catch (error) {
-    if (!state.setup || state.setup.attemptId !== attemptId || state.setup.pollGeneration !== pollGeneration) return;
-    stopLoginPolling();
-    state.setup.status = "error";
-    state.setup.error = error.message;
-    state.setup.message = null;
+    if (state.setup !== setup || setup.attemptId !== attemptId || setup.pollGeneration !== pollGeneration) return;
+    stopLoginPolling(setup);
+    setup.status = "error";
+    setup.error = error.message;
+    setup.message = null;
     renderSetup();
   }
 }
 
-async function cancelSetup() {
-  if (!state.setup) return;
-  if (!state.setup.attemptId || state.setup.status !== "pending") {
-    stopLoginPolling();
+async function cancelSetup(setup = state.setup) {
+  if (!setup || state.setup !== setup) return;
+  if (!setup.attemptId || setup.status !== "pending") {
+    stopLoginPolling(setup);
     state.setup = null;
     renderSetup();
     return;
   }
-  const setup = state.setup;
-  stopLoginPolling();
+  stopLoginPolling(setup);
   try {
     await getJson(`/v1/accounts/${setup.accountId}/login/${setup.attemptId}/cancel`, { method: "POST" });
-    stopLoginPolling();
+    if (state.setup !== setup) return;
+    stopLoginPolling(setup);
     setup.status = "cancelled";
     renderSetup();
     if (select("#live-announcement")) select("#live-announcement").textContent = setupStatusMessage(setup.status);
   } catch (error) {
-    stopLoginPolling();
+    if (state.setup !== setup) return;
+    stopLoginPolling(setup);
     setup.status = "error";
     setup.error = error.message;
     setup.message = null;
