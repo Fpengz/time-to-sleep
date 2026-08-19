@@ -169,7 +169,6 @@ function renderHero() {
   const reset = select("#next-reset");
   const detail = select("#next-reset-detail");
   if (!title || !copy || !reset || !detail) return;
-  select("#legacy-reset-summary-hook")?.remove();
 
   const counts = snapshotCounts();
   const candidate = resetCandidates()[0] || null;
@@ -194,13 +193,7 @@ function renderHero() {
     const date = new Date(candidate.window.resets_at);
     reset.dateTime = date.toISOString();
     reset.textContent = formatReset(candidate.window.resets_at).replace("Resets ", "");
-    const resetDetail = `${accountLabel(candidate.snapshot)} · ${formatWindow(candidate.window.id)}`;
-    detail.textContent = resetDetail;
-    document.body.append(element("span", {
-      className: "summary-card",
-      text: `Next reset ${resetDetail}`,
-      attributes: { id: "legacy-reset-summary-hook", hidden: "", "aria-hidden": "true" },
-    }));
+    detail.textContent = `${accountLabel(candidate.snapshot)} · ${formatWindow(candidate.window.id)}`;
   } else {
     reset.removeAttribute("datetime");
     reset.textContent = state.loading ? "Waiting for sync" : "Not reported";

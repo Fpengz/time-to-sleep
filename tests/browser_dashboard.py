@@ -153,9 +153,10 @@ def assert_setup_flow(browser: Browser) -> None:
     )
     page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30_000)
     page.wait_for_load_state("networkidle", timeout=10_000)
-    next_reset = page.locator(".summary-card").filter(has_text="Next reset")
-    assert "Claude Code" in (next_reset.inner_text())
-    assert "Five Hour" in (next_reset.inner_text())
+    next_reset_detail = page.locator("#next-reset-detail")
+    assert "Claude Code" in next_reset_detail.inner_text()
+    assert "Five Hour" in next_reset_detail.inner_text()
+    assert page.locator(".summary-card").filter(has_text="Next reset").count() == 0
     assert page.get_by_role("button", name="Retry usage").count() == 2
     page.get_by_role("button", name="Retry login").click()
     assert "secondary@example.com" in page.locator("#setup-panel").inner_text()
