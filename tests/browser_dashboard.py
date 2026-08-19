@@ -223,11 +223,24 @@ def assert_setup_flow(browser: Browser, console_errors: list[str], page_errors: 
     assert page.locator(".summary-card").filter(has_text="Next reset").count() == 0
     assert page.get_by_role("button", name="Retry usage").count() == 2
     page.get_by_role("button", name="Retry login").click()
-    assert "secondary@example.com" in page.locator("#setup-panel").inner_text()
+    setup_panel = page.locator("#setup-panel")
+    assert setup_panel.get_attribute("aria-live") == "polite"
+    assert setup_panel.get_attribute("data-status") == "idle"
+    assert "secondary@example.com" in setup_panel.inner_text()
+    setup_status = setup_panel.locator('[role="status"]')
+    assert setup_status.is_visible()
+    assert setup_status.get_attribute("aria-live") == "polite"
+    assert "choose a sign-in method" in setup_status.inner_text().lower()
     assert page.locator("#setup-method").input_value() == "device_code"
     page.select_option("#setup-method", "device_code")
     page.get_by_role("button", name="Start login").click()
     page.get_by_text("ABCD-EFGH").wait_for(state="visible", timeout=5_000)
+    page.wait_for_function(
+        "document.querySelector('#setup-panel')?.dataset.status === 'pending'",
+        timeout=5_000,
+    )
+    assert "login attempt active" in setup_panel.locator('[role="status"]').inner_text().lower()
+    assert setup_panel.locator('[role="status"]').get_attribute("aria-live") == "polite"
     copy_button = page.get_by_role("button", name="Copy device code")
     copy_button.click()
     page.wait_for_function("navigator.clipboard.readText().then((value) => value === 'ABCD-EFGH')")
@@ -393,6 +406,178 @@ def assert_retained_snapshots_on_refresh_failure(
         page.close()
 
 
+def assert_narrow_dark_viewport(
+    browser: Browser, console_errors: list[str], page_errors: list[str]
+) -> None:
+    page = browser.new_page(viewport={"width": 390, "height": 844}, color_scheme="dark")
+    attach_page_error_listeners(page, console_errors, page_errors)
+    try:
+        page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30_000)
+        page.wait_for_load_state("networkidle", timeout=60_000)
+        assert page.locator("html").get_attribute("data-theme") == "dark"
+        assert page.locator("#provider-ledger").is_visible()
+        assert page.locator("#account-list").is_visible()
+        assert page.locator("#refresh-button").is_visible()
+        assert page.locator("#refresh-button").is_enabled()
+        assert_no_horizontal_overflow(page)
+    finally:
+        page.close()
+
+
+def assert_keyboard_focus_and_reduced_motion(
+    browser: Browser, console_errors: list[str], page_errors: list[str]
+) -> None:
+    page = browser.new_page(viewport={"width": 1100, "height": 900}, color_scheme="dark")
+    attach_page_error_listeners(page, console_errors, page_errors)
+    try:
+        page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30_000)
+        page.wait_for_load_state("networkidle", timeout=60_000)
+        page.locator(".brand").focus()
+        page.keyboard.press("Tab")
+        assert page.locator("#theme-toggle").evaluate(
+            "element => element === document.activeElement && element.matches(':focus-visible')"
+        )
+        focus_style = page.locator("#theme-toggle").evaluate(
+            """
+            element => {
+                const style = getComputedStyle(element);
+                return {
+                    outlineStyle: style.outlineStyle,
+                    outlineWidth: parseFloat(style.outlineWidth),
+                    outlineOffset: parseFloat(style.outlineOffset),
+                };
+            }
+            """
+        )
+        assert focus_style["outlineStyle"] != "none"
+        assert focus_style["outlineWidth"] >= 2
+        assert focus_style["outlineOffset"] >= 2
+    finally:
+        page.close()
+
+    reduced_motion_page = browser.new_page(
+        viewport={"width": 1100, "height": 900},
+        color_scheme="dark",
+        reduced_motion="reduce",
+    )
+    attach_page_error_listeners(reduced_motion_page, console_errors, page_errors)
+    try:
+        reduced_motion_page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30_000)
+        reduced_motion_page.wait_for_load_state("networkidle", timeout=60_000)
+        reduced_motion_page.locator(".meter-fill").first.wait_for(state="attached")
+        motion_style = reduced_motion_page.evaluate(
+            """
+            () => {
+                const meter = getComputedStyle(document.querySelector('.meter-fill'));
+                const loadingProbe = document.createElement('span');
+                loadingProbe.className = 'loading-line';
+                document.body.append(loadingProbe);
+                const loading = getComputedStyle(loadingProbe);
+                const loadingAnimationDuration = loading.animationDuration;
+                const loadingAnimationName = loading.animationName;
+                loadingProbe.remove();
+                const toMilliseconds = (value) => {
+                    const amount = parseFloat(value);
+                    return value.endsWith('ms') ? amount : amount * 1000;
+                };
+                return {
+                    meterTransition: toMilliseconds(meter.transitionDuration),
+                    loadingAnimationDuration,
+                    loadingAnimationName,
+                    loadingAnimationDisabled:
+                        loadingAnimationName === 'none'
+                        || toMilliseconds(loadingAnimationDuration) <= 0.01,
+                    scrollBehavior: getComputedStyle(document.documentElement).scrollBehavior,
+                };
+            }
+            """
+        )
+        assert motion_style["meterTransition"] <= 0.01, motion_style
+        assert motion_style["loadingAnimationDisabled"], motion_style
+        assert motion_style["scrollBehavior"] == "auto"
+    finally:
+        reduced_motion_page.close()
+
+
+def assert_resilient_status_labels(
+    browser: Browser, console_errors: list[str], page_errors: list[str]
+) -> None:
+    page = browser.new_page(viewport={"width": 1100, "height": 900}, color_scheme="dark")
+    attach_page_error_listeners(page, console_errors, page_errors)
+    snapshots = []
+    for account_id, status, message, error_code in (
+        ("partial", "cached", "Partial provider response", "partial_response"),
+        ("stale", "stale", "Stale usage snapshot", "stale_data"),
+        ("rate-limited", "rate_limited", "Provider rate limit reached", "rate_limited"),
+        ("unavailable", "unavailable", "Provider unavailable", "provider_unavailable"),
+    ):
+        snapshots.append(
+            {
+                "account_id": account_id,
+                "provider": "claude",
+                "configured_email": f"{account_id}@example.com",
+                "status": status,
+                "source": "test",
+                "observed_at": "2026-08-19T00:00:00Z",
+                "retrieved_at": "2026-08-19T00:00:00Z",
+                "windows": []
+                if status == "unavailable"
+                else [{"id": "primary", "used_percent": 42}],
+                "message": message,
+                "error_code": error_code,
+            }
+        )
+    usage = {"generated_at": "2026-08-19T00:00:00Z", "accounts": snapshots}
+
+    def usage_response(route) -> None:
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(usage))
+
+    def accounts_response(route) -> None:
+        route.fulfill(status=200, content_type="application/json", body=json.dumps([]))
+
+    page.route(f"{BASE_URL}/v1/usage*", usage_response)
+    page.route(f"{BASE_URL}/v1/accounts", accounts_response)
+    try:
+        page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30_000)
+        page.wait_for_load_state("networkidle", timeout=60_000)
+        for account_id, status, label, message, error_code in (
+            ("partial", "cached", "Cached", "Partial provider response", "partial response"),
+            ("stale", "stale", "Stale", "Stale usage snapshot", "stale data"),
+            (
+                "rate-limited",
+                "rate_limited",
+                "Rate limited",
+                "Provider rate limit reached",
+                "rate limited",
+            ),
+            (
+                "unavailable",
+                "unavailable",
+                "Unavailable",
+                "Provider unavailable",
+                "provider unavailable",
+            ),
+        ):
+            card = page.locator(f".account-card.status-{status}").filter(
+                has_text=f"{account_id}@example.com"
+            )
+            assert card.count() == 1
+            assert card.is_visible()
+            assert label.lower() in card.locator(".status-badge").inner_text().lower(), (
+                card.inner_text()
+            )
+            assert message in card.inner_text(), card.inner_text()
+            assert error_code in card.locator(".account-error").inner_text().lower(), (
+                card.inner_text()
+            )
+        summary_text = page.locator("#summary").inner_text().lower()
+        assert "attention" in summary_text
+        assert "accounts need a look" in summary_text
+        assert_no_horizontal_overflow(page)
+    finally:
+        page.close()
+
+
 def assert_initial_failure_headline(
     browser: Browser, console_errors: list[str], page_errors: list[str]
 ) -> None:
@@ -419,6 +604,7 @@ def assert_initial_failure_headline(
         )
         assert "No clear reading" in page.locator("#page-title").inner_text()
         assert "Initial provider failure" in page.locator("#hero-copy").inner_text()
+        assert "Initial provider failure" in page.locator("#live-announcement").inner_text()
         assert page.locator("#refresh-button").inner_text() == "Refresh usage"
         assert page.locator("#account-list").get_attribute("aria-busy") is None
     finally:
@@ -542,6 +728,9 @@ def main() -> None:
             assert_retained_snapshots_on_refresh_failure(browser, console_errors, page_errors)
             assert_initial_failure_headline(browser, console_errors, page_errors)
             assert_refresh_coalesces_overlapping_calls(browser, console_errors, page_errors)
+            assert_narrow_dark_viewport(browser, console_errors, page_errors)
+            assert_keyboard_focus_and_reduced_motion(browser, console_errors, page_errors)
+            assert_resilient_status_labels(browser, console_errors, page_errors)
         finally:
             browser.close()
     unexpected_console_errors = [
