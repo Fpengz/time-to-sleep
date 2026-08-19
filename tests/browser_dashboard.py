@@ -25,7 +25,7 @@ def assert_dashboard(page: Page) -> None:
     assert page.locator("#page-title").is_visible()
     assert page.locator("#hero-copy").is_visible()
     assert page.locator("#next-reset").is_visible()
-    assert page.locator("#signal-strip").is_visible()
+    assert page.locator("#summary.signal-strip").is_visible()
     assert page.locator("#provider-ledger").is_visible()
     account_cards = page.locator("#account-list .account-card")
     assert account_cards.count() == 4
