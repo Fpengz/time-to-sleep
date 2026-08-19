@@ -14,9 +14,7 @@ def attach_page_error_listeners(
 ) -> None:
     page.on(
         "console",
-        lambda message: (
-            console_errors.append(message.text) if message.type == "error" else None
-        ),
+        lambda message: console_errors.append(message.text) if message.type == "error" else None,
     )
     page.on("pageerror", lambda error: page_errors.append(str(error)))
 
@@ -68,9 +66,7 @@ def assert_dashboard(page: Page) -> None:
     assert_no_horizontal_overflow(page)
 
 
-def assert_setup_flow(
-    browser: Browser, console_errors: list[str], page_errors: list[str]
-) -> None:
+def assert_setup_flow(browser: Browser, console_errors: list[str], page_errors: list[str]) -> None:
     page = browser.new_page(viewport={"width": 1100, "height": 900}, color_scheme="light")
     attach_page_error_listeners(page, console_errors, page_errors)
     page.context.grant_permissions(["clipboard-read", "clipboard-write"], origin=BASE_URL)
