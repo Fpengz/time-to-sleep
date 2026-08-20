@@ -43,7 +43,8 @@ def assert_dashboard(page: Page) -> None:
         assert label in summary_labels
     assert page.locator("#page-title").is_visible()
     assert page.locator("#hero-copy").is_visible()
-    assert page.locator("#next-reset").is_visible()
+    assert page.locator(".hero-reset").count() == 0
+    assert page.locator(".sync-note").count() == 0
     assert page.locator("#summary.signal-strip").is_visible()
     assert page.locator("#provider-ledger").is_visible()
     account_cards = page.locator("#account-list .account-card")
@@ -223,9 +224,11 @@ def assert_setup_flow(browser: Browser, console_errors: list[str], page_errors: 
     page.wait_for_load_state("networkidle", timeout=10_000)
     assert usage_reads == 1
     assert usage_urls[0] == f"{BASE_URL}/v1/usage"
-    next_reset_detail = page.locator("#next-reset-detail")
-    assert "Claude Code" in next_reset_detail.inner_text()
-    assert "Five Hour" in next_reset_detail.inner_text()
+    assert page.locator(".hero-reset").count() == 0
+    assert page.locator(".sync-note").count() == 0
+    account_reset = page.locator("#account-list .account-card").filter(has_text="Claude Code")
+    assert account_reset.locator(".window-detail").filter(has_text="Resets").count() == 1
+    assert "Five Hour" in account_reset.inner_text()
     assert page.locator(".summary-card").filter(has_text="Next reset").count() == 0
     assert page.get_by_role("button", name="Retry usage").count() == 2
     page.get_by_role("button", name="Retry login").click()

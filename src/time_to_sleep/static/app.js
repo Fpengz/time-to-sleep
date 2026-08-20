@@ -161,13 +161,6 @@ function formatPercent(percent) {
   return Number.isInteger(percent) ? `${percent}%` : `${percent.toFixed(1)}%`;
 }
 
-function resetCandidates() {
-  return state.snapshots
-    .flatMap((snapshot) => (snapshot.windows || []).map((window) => ({ snapshot, window })))
-    .filter((candidate) => Number.isFinite(Date.parse(candidate.window.resets_at)))
-    .sort((left, right) => Date.parse(left.window.resets_at) - Date.parse(right.window.resets_at));
-}
-
 function snapshotCounts() {
   return {
     live: state.snapshots.filter((item) => item.status === "live").length,
@@ -192,12 +185,9 @@ function refreshAnnouncement(usageResult, accountsResult) {
 function renderHero() {
   const title = select("#page-title");
   const copy = select("#hero-copy");
-  const reset = select("#next-reset");
-  const detail = select("#next-reset-detail");
-  if (!title || !copy || !reset || !detail) return;
+  if (!title || !copy) return;
 
   const counts = snapshotCounts();
-  const candidate = resetCandidates()[0] || null;
   const total = state.snapshots.length;
   const clear = !total || counts.attention + counts.unavailable === 0;
   const loadIssue = loadIssueMessage();
@@ -217,17 +207,6 @@ function renderHero() {
     copy.textContent = `${counts.live} of ${total} ${total === 1 ? "account is" : "accounts are"} live; ${needsAttention} need${needsAttention === 1 ? "s" : ""} attention.`;
   }
   if (total && loadIssue) copy.textContent += ` Last sync issue: ${loadIssue}`;
-
-  if (candidate) {
-    const date = new Date(candidate.window.resets_at);
-    reset.dateTime = date.toISOString();
-    reset.textContent = formatReset(candidate.window.resets_at).replace("Resets ", "");
-    detail.textContent = `${accountLabel(candidate.snapshot)} · ${formatWindow(candidate.window.id)}`;
-  } else {
-    reset.removeAttribute("datetime");
-    reset.textContent = state.loading ? "Waiting for sync" : "Not reported";
-    detail.textContent = "No reset reported";
-  }
 }
 
 function renderSummary() {
