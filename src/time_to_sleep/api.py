@@ -101,6 +101,8 @@ async def login_start(
         raise HTTPException(status_code=404, detail="Account not found") from error
     except ValueError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
+    except OSError as error:
+        raise HTTPException(status_code=500, detail=f"Permission denied or IO error: {error}") from error
 
 
 @app.get(

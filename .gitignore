@@ -29,3 +29,7 @@ Thumbs.db
 # IDE and Editor
 .vscode/
 .idea/
+
+# macOS App
+macOS/Time-to-Sleep.app/
+macOS/AppIcon.iconset/

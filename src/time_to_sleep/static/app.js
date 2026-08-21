@@ -14,6 +14,7 @@ const state = {
   loadError: null,
   accountLoadError: null,
   setup: null,
+  lastGeneratedAt: null,
 };
 
 const providerLabels = {
@@ -182,32 +183,7 @@ function refreshAnnouncement(usageResult, accountsResult) {
   return "Usage data refreshed.";
 }
 
-function renderHero() {
-  const title = select("#page-title");
-  const copy = select("#hero-copy");
-  if (!title || !copy) return;
 
-  const counts = snapshotCounts();
-  const total = state.snapshots.length;
-  const clear = !total || counts.attention + counts.unavailable === 0;
-  const loadIssue = loadIssueMessage();
-  const emptyFailure = !total && !state.loading && Boolean(loadIssue);
-
-  title.replaceChildren(
-    element("span", { text: emptyFailure ? "No clear reading" : clear ? "A clear night" : "A little weather" }),
-    element("br"),
-    element("em", { text: emptyFailure ? "from the providers." : clear ? "for your quota." : "in the forecast." }),
-  );
-  if (!total) {
-    copy.textContent = state.loading ? "Listening for provider usage…" : loadIssue || "Waiting for the first provider sync.";
-  } else if (clear) {
-    copy.textContent = `${counts.live} of ${total} ${total === 1 ? "account is" : "accounts are"} reporting live.`;
-  } else {
-    const needsAttention = counts.attention + counts.unavailable;
-    copy.textContent = `${counts.live} of ${total} ${total === 1 ? "account is" : "accounts are"} live; ${needsAttention} need${needsAttention === 1 ? "s" : ""} attention.`;
-  }
-  if (total && loadIssue) copy.textContent += ` Last sync issue: ${loadIssue}`;
-}
 
 function renderSummary() {
   const summary = select("#summary");
@@ -489,11 +465,13 @@ async function pollLogin(accountId, attemptId, pollGeneration = state.setup?.pol
     if (state.setup !== setup || setup.attemptId !== attemptId || setup.pollGeneration !== pollGeneration) return;
     setup.status = attempt.status;
     setup.message = attempt.message || null;
-    renderSetup();
     if (attempt.status === "pending") {
+      const statusEl = select("#setup-panel .setup-status");
+      if (statusEl) statusEl.textContent = setup.error || setup.message || setupStatusMessage(setup.status);
       setup.pollTimer = setTimeout(() => pollLogin(accountId, attemptId, pollGeneration, setup), 2000);
       return;
     }
+    renderSetup();
     stopLoginPolling(setup);
     if (select("#live-announcement")) select("#live-announcement").textContent = setupStatusMessage(attempt.status);
     if (attempt.status === "succeeded") {
@@ -543,7 +521,6 @@ async function cancelSetup(setup = state.setup) {
 }
 
 function render() {
-  renderHero();
   renderSummary();
   renderAccounts();
   renderSetup();
@@ -597,7 +574,8 @@ async function refresh(forceRefresh = false) {
       [usageResult, accountsResult] = await Promise.allSettled([loadUsage(forceRefresh), loadAccounts()]);
       if (usageResult.status === "fulfilled") {
         state.snapshots = usageResult.value.accounts || [];
-        updateTimestamp(usageResult.value.generated_at);
+        state.lastGeneratedAt = usageResult.value.generated_at;
+        updateTimestamp(state.lastGeneratedAt);
       } else {
         state.loadError = usageResult.reason?.message || "Usage could not be loaded.";
       }
@@ -635,4 +613,13 @@ document.addEventListener("DOMContentLoaded", () => {
   initializeTheme();
   select("#refresh-button")?.addEventListener("click", () => refresh(true));
   refresh();
+  
+  // Update relative timestamps every minute
+  setInterval(() => {
+    if (!state.loading && state.snapshots.length > 0) {
+      if (state.lastGeneratedAt) {
+        updateTimestamp(state.lastGeneratedAt);
+      }
+    }
+  }, 60000);
 });

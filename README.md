@@ -111,3 +111,13 @@ their app-server process is closed in every terminal state.
   usage and cleans up any temporary CLI process it started.
 
 Provider credentials and tokens are never printed by the backend.
+
+## macOS Menu Bar App
+
+A lightweight SwiftUI Menu Bar application is included in the `macOS` directory. It sits in your macOS menu bar, polls the local Python backend, and displays provider statuses and usage progress bars at a glance.
+
+**To run the macOS app:**
+Open `macOS/Time-to-Sleep.app` or compile it via `macOS/build.sh`.
+
+**Note on environment:**
+The macOS app automatically resolves your project directory (relative to your home folder: `~/projects/time-to-sleep`) to launch the `uv` backend process in the background. It also reads the `PORT` from your `.env` file to know where the FastAPI service is listening. If you exit the menu bar app, it will safely shut down the background `uv` backend process.
