@@ -8,6 +8,7 @@ dependencies = [
   "fastapi>=0.115,<1",
   "httpx>=0.28,<1",
   "pydantic-settings>=2.7,<3",
+  "tomli-w>=1.0,<2",
   "uvicorn[standard]>=0.34,<1",
 ]
 
@@ -15,10 +16,12 @@ dependencies = [
 dev = [
   "pytest>=8.3,<9",
   "pytest-asyncio>=0.25,<1",
+  "pytest-cov>=6,<8",
   "playwright>=1.50,<2",
   "respx>=0.22,<1",
   "ruff>=0.15,<1",
   "ty>=0.0.1,<1",
+  "pillow>=12.3.0",
 ]
 
 [project.scripts]
@@ -34,6 +37,18 @@ packages = ["src/time_to_sleep"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+filterwarnings = [
+  # Starlette's TestClient still imports httpx; upstream-only, nothing we can act on.
+  "ignore:Using `httpx` with `starlette.testclient` is deprecated",
+]
+addopts = "--cov=time_to_sleep --cov-report=term-missing"
+
+[tool.coverage.run]
+source = ["time_to_sleep"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
 
 [tool.ruff]
 target-version = "py312"
