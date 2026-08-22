@@ -80,9 +80,7 @@ async def test_claude_provider_uses_web_usage_when_oauth_is_rate_limited(
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_claude_provider_uses_configured_web_session(
-    tmp_path: Path, monkeypatch
-) -> None:
+async def test_claude_provider_uses_configured_web_session(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "test-token")
     monkeypatch.setenv("CLAUDE_WEB_ORGANIZATION_ID", "org-123")
     monkeypatch.setenv("CLAUDE_WEB_SESSION_KEY", "session-value")

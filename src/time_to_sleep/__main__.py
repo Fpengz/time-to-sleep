@@ -1,13 +1,6 @@
-import os
-import uvicorn
-from dotenv import load_dotenv
+import sys
 
-
-def main() -> None:
-    load_dotenv()
-    port = int(os.environ.get("PORT", 4141))
-    uvicorn.run("time_to_sleep.api:app", host="127.0.0.1", port=port, reload=False)
-
+from time_to_sleep.cli import main
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1:])

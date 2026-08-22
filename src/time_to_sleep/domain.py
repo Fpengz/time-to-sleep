@@ -34,6 +34,8 @@ class AccountConfig(BaseModel):
     provider: ProviderName
     email: str = Field(min_length=3)
     home: str = Field(min_length=1)
+    warning_threshold: float = Field(default=80.0, ge=1.0, le=100.0)
+    critical_threshold: float = Field(default=95.0, ge=1.0, le=100.0)
 
     @field_validator("id", "email", "home")
     @classmethod
@@ -125,3 +127,24 @@ class Settings(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     accounts: list[AccountConfig] = Field(min_length=1)
+
+
+class AccountAnalytics(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    account_id: str
+    provider: ProviderName
+    current_percent: float
+    burn_rate_per_hour: float | None = None
+    minutes_to_exhaustion: int | None = None
+    status: AccountStatus
+    recommended: bool = False
+    recommendation_reason: str | None = None
+
+
+class AnalyticsResponse(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    generated_at: datetime
+    accounts: list[AccountAnalytics]
+    suggestions: list[str] = Field(default_factory=list)

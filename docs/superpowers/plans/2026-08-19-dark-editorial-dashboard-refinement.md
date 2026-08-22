@@ -42,9 +42,7 @@ Add an overflow helper near `assert_dashboard`:
 
 ```python
 def assert_no_horizontal_overflow(page: Page) -> None:
-    assert page.evaluate(
-        "document.documentElement.scrollWidth <= window.innerWidth"
-    )
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
 ```
 
 Call it once at the end of the desktop dashboard assertions. Keep the existing theme and refresh checks so this task fails only on the missing revised landmarks, not by removing regression coverage.

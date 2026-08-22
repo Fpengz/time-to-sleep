@@ -1,10 +1,12 @@
 from collections.abc import Iterator
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from time_to_sleep.api import app, get_login_service, get_settings, get_usage_service
+from time_to_sleep.config import save_settings
 from time_to_sleep.domain import (
     AccountConfig,
     AccountStatus,
@@ -107,17 +109,19 @@ class FakeLoginService:
 
 @pytest.fixture
 def configured_client() -> Iterator[tuple[TestClient, FakeUsageService, FakeLoginService]]:
-    settings = Settings(
-        accounts=[
-            account("codex-primary", "codex"),
-            account("codex-secondary", "codex"),
-            account("claude", "claude"),
-            account("antigravity", "antigravity"),
-        ]
-    )
-    usage_service = FakeUsageService(settings)
-    login_service = FakeLoginService(settings)
-    app.dependency_overrides[get_settings] = lambda: settings
+    settings_box = [
+        Settings(
+            accounts=[
+                account("codex-primary", "codex"),
+                account("codex-secondary", "codex"),
+                account("claude", "claude"),
+                account("antigravity", "antigravity"),
+            ]
+        )
+    ]
+    usage_service = FakeUsageService(settings_box[0])
+    login_service = FakeLoginService(settings_box[0])
+    app.dependency_overrides[get_settings] = lambda: settings_box[0]
     app.dependency_overrides[get_usage_service] = lambda: usage_service
     app.dependency_overrides[get_login_service] = lambda: login_service
     with TestClient(app) as client:
@@ -223,3 +227,104 @@ def test_static_stylesheet_is_served() -> None:
 
     assert response.status_code == 200
     assert "--bg:" in response.text
+
+
+def test_analytics_endpoint(
+    configured_client: tuple[TestClient, FakeUsageService, FakeLoginService],
+) -> None:
+    client, _, _ = configured_client
+
+    response = client.get("/v1/analytics")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert "accounts" in data
+    assert "suggestions" in data
+    assert len(data["accounts"]) == 4
+
+
+@pytest.mark.asyncio
+async def test_events_broadcaster() -> None:
+    from time_to_sleep.api import EventBroadcaster
+
+    broadcaster = EventBroadcaster()
+    queue = broadcaster.subscribe()
+
+    await broadcaster.broadcast("usage", {"status": "ok"})
+    msg = queue.get_nowait()
+
+    assert msg.startswith("event: usage")
+    assert '"status": "ok"' in msg
+
+    broadcaster.unsubscribe(queue)
+    assert len(broadcaster._subscribers) == 0
+
+
+def test_history_endpoint(
+    configured_client: tuple[TestClient, FakeUsageService, FakeLoginService],
+) -> None:
+    client, _, _ = configured_client
+
+    # First query usage so history is populated
+    client.get("/v1/usage")
+
+    response = client.get("/v1/history?hours=1")
+    assert response.status_code == 200
+    assert isinstance(response.json(), list)
+
+
+def test_account_config_create_and_delete(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    config_file = tmp_path / "accounts.toml"
+    init_settings = Settings(
+        accounts=[
+            account("codex-primary", "codex"),
+        ]
+    )
+    save_settings(init_settings, path=config_file)
+    monkeypatch.setenv("TIME_TO_SLEEP_CONFIG", str(config_file))
+    from time_to_sleep.api import reload_services
+
+    reload_services()
+
+    with TestClient(app) as client:
+        new_acc = {
+            "id": "codex-test-new",
+            "provider": "codex",
+            "email": "new@example.com",
+            "home": "~/.codex",
+        }
+        response = client.post("/v1/accounts/config", json=new_acc)
+        assert response.status_code == 200
+        assert any(a["id"] == "codex-test-new" for a in response.json())
+
+        # Now delete
+        del_resp = client.delete("/v1/accounts/config/codex-test-new")
+        assert del_resp.status_code == 200
+        assert not any(a["id"] == "codex-test-new" for a in del_resp.json())
+
+
+def test_discover_and_apply_endpoint(
+    configured_client: tuple[TestClient, FakeUsageService, FakeLoginService],
+) -> None:
+    client, _, _ = configured_client
+
+    discover_resp = client.get("/v1/accounts/discover")
+    assert discover_resp.status_code == 200
+    assert isinstance(discover_resp.json(), list)
+
+    apply_resp = client.post("/v1/accounts/discover/apply", json={"account_ids": []})
+    assert apply_resp.status_code == 200
+
+
+def test_heatmap_endpoint(
+    configured_client: tuple[TestClient, FakeUsageService, FakeLoginService],
+) -> None:
+    client, _, _ = configured_client
+    # Populate usage
+    client.get("/v1/usage")
+
+    resp = client.get("/v1/analytics/heatmap?days=7")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) == 24
+    assert all("hour" in item and "average_percent" in item for item in data)

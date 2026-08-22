@@ -19,12 +19,20 @@
     <div class="app-shell">
       <a class="skip-link" href="#main-content">Skip to main content</a>
       <header class="site-header">
-        <a class="brand" href="/" aria-label="Time-to-Sleep home">
-          <span class="brand-mark" aria-hidden="true">TS</span>
-          <span>time-to-sleep</span>
-        </a>
+        <div class="header-left">
+          <a class="brand" href="#ledger" aria-label="Time-to-Sleep home">
+            <span class="brand-mark" aria-hidden="true">TS</span>
+            <span>time-to-sleep</span>
+          </a>
+          <nav class="site-nav" aria-label="Views">
+            <button id="tab-ledger-btn" class="nav-tab active" type="button">Ledger</button>
+            <button id="tab-trends-btn" class="nav-tab" type="button">Trends & Sparklines</button>
+          </nav>
+        </div>
         <div class="header-actions">
           <time id="last-updated">Waiting for first sync</time>
+          <button id="discover-btn" class="button button-secondary" type="button" title="Auto-discover accounts on disk">🔍 Discover</button>
+          <button id="manage-accounts-btn" class="button button-secondary" type="button">Manage Accounts</button>
           <button id="theme-toggle" class="icon-button" type="button" aria-label="Switch color theme">
             <span aria-hidden="true">◐</span>
           </button>
@@ -34,26 +42,165 @@
 
       <main id="main-content">
         <p id="live-announcement" class="sr-only" aria-live="polite"></p>
-        <section id="summary" class="signal-strip" aria-label="Usage summary"></section>
 
-        <section id="provider-ledger" class="accounts-section" aria-labelledby="accounts-title">
-          <div class="section-heading">
-            <div>
-              <p class="eyebrow">Provider ledger</p>
-              <h2 id="accounts-title">The accounts</h2>
+        <!-- VIEW 1: LEDGER (Overview) -->
+        <div id="view-ledger" class="page-view active">
+          <section id="summary" class="signal-strip" aria-label="Usage summary"></section>
+
+          <section id="provider-ledger" class="accounts-section" aria-labelledby="accounts-title">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Provider ledger</p>
+                <h2 id="accounts-title">The accounts</h2>
+              </div>
+              <div class="heading-actions">
+                <span class="section-caption">Normalized usage windows</span>
+                <button id="view-all-trends-btn" class="button button-secondary button-sm" type="button">View All Trends ↗</button>
+              </div>
             </div>
-            <span class="section-caption">Normalized usage windows</span>
-          </div>
-          <section id="account-list" class="account-list" aria-label="Provider usage">
-            <div class="loading-state" role="status" aria-label="Loading provider usage">
-              <span class="loading-line"></span>
-              <span class="loading-line short"></span>
-              <span class="loading-line shorter"></span>
+            <section id="account-list" class="account-list" aria-label="Provider usage">
+              <div class="loading-state" role="status" aria-label="Loading provider usage">
+                <span class="loading-line"></span>
+                <span class="loading-line short"></span>
+                <span class="loading-line shorter"></span>
+              </div>
+            </section>
+          </section>
+
+          <section id="setup-panel" class="setup-panel" hidden aria-live="polite" aria-labelledby="setup-title"></section>
+        </div>
+
+        <!-- VIEW 2: TRENDS & SPARKLINES (Dedicated Analytics Page) -->
+        <div id="view-trends" class="page-view" hidden>
+          <section class="trends-hero-header">
+            <div>
+              <p class="eyebrow">Usage observatory · Analytics</p>
+              <h1 class="page-title">Trends & Sparklines</h1>
+              <p class="page-subtitle">Full-resolution historical trajectories, consumption velocity, and multi-range pattern breakdown.</p>
+            </div>
+            <div class="trends-hero-controls">
+              <div class="global-range-picker" role="group" aria-label="Historical time range">
+                <button type="button" class="range-pill active" data-hours="24">24 Hours</button>
+                <button type="button" class="range-pill" data-hours="168">7 Days</button>
+                <button type="button" class="range-pill" data-hours="720">30 Days</button>
+              </div>
+              <button id="export-csv-btn" class="button button-secondary" type="button">Export CSV</button>
             </div>
           </section>
-        </section>
 
-        <section id="setup-panel" class="setup-panel" hidden aria-live="polite" aria-labelledby="setup-title"></section>
+          <!-- Macro Comparative Timeline -->
+          <section id="macro-trends-card" class="macro-trends-card" aria-labelledby="macro-trends-title">
+            <div class="card-header-bar">
+              <div>
+                <h3 id="macro-trends-title" class="card-subhead">Multi-Account Trajectory Comparison</h3>
+                <span class="card-caption">Normalized quota percentage timeline</span>
+              </div>
+              <div id="macro-legend" class="macro-legend"></div>
+            </div>
+            <div id="macro-chart-container" class="macro-chart-container"></div>
+          </section>
+
+          <!-- Account Sparkline Grid -->
+          <section class="trends-section" aria-labelledby="detail-trends-title">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Account Breakdown</p>
+                <h2 id="detail-trends-title">Individual Sparkline Observatories</h2>
+              </div>
+            </div>
+            <div id="trends-cards-grid" class="trends-cards-grid"></div>
+          </section>
+
+          <!-- Hourly Heatmap Pattern Breakdown -->
+          <section id="heatmap-section" class="heatmap-card" aria-label="Usage patterns and peak hours"></section>
+
+          <!-- History Data Table Log -->
+          <section class="history-table-section">
+            <details class="history-table-details">
+              <summary class="history-table-summary">
+                <span>View Raw Observation Log (<span id="history-log-count">0</span> records)</span>
+              </summary>
+              <div class="table-scroll-wrap">
+                <table class="history-data-table">
+                  <thead>
+                    <tr>
+                      <th>Observed At (UTC)</th>
+                      <th>Account</th>
+                      <th>Provider</th>
+                      <th>Window</th>
+                      <th>Used %</th>
+                    </tr>
+                  </thead>
+                  <tbody id="history-table-body">
+                    <tr><td colspan="5" class="loading-cell">No history points loaded yet.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          </section>
+        </div>
+
+        <!-- Discovery Modal -->
+        <dialog id="discover-modal" class="account-modal" aria-labelledby="discover-title">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h3 id="discover-title">Auto-Discovered Accounts</h3>
+              <button type="button" id="discover-close-btn" class="icon-button modal-close" aria-label="Close">✕</button>
+            </div>
+            <p class="setup-copy">We detected the following AI assistant configurations on your machine:</p>
+            <div id="discover-list" class="discover-list"></div>
+            <div class="modal-actions">
+              <button type="button" id="discover-cancel-btn" class="button button-secondary">Cancel</button>
+              <button type="button" id="discover-import-all-btn" class="button button-action">Import All</button>
+            </div>
+          </div>
+        </dialog>
+
+        <!-- Account Modal -->
+        <dialog id="account-modal" class="account-modal" aria-labelledby="modal-title">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h3 id="modal-title">Account Configuration</h3>
+              <button type="button" id="modal-close-btn" class="icon-button modal-close" aria-label="Close">✕</button>
+            </div>
+            <form id="account-form">
+              <div class="form-group">
+                <label for="acc-id">Account ID</label>
+                <input type="text" id="acc-id" required placeholder="e.g. codex-primary">
+              </div>
+              <div class="form-group">
+                <label for="acc-provider">Provider</label>
+                <select id="acc-provider" required>
+                  <option value="codex">Codex</option>
+                  <option value="claude">Claude Code</option>
+                  <option value="antigravity">Antigravity</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="acc-email">Email</label>
+                <input type="email" id="acc-email" required placeholder="developer@example.com">
+              </div>
+              <div class="form-group">
+                <label for="acc-home">Home Directory</label>
+                <input type="text" id="acc-home" required placeholder="~/.codex or custom path">
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="acc-warning">Warning (%)</label>
+                  <input type="number" id="acc-warning" min="1" max="100" value="80" required>
+                </div>
+                <div class="form-group">
+                  <label for="acc-critical">Critical (%)</label>
+                  <input type="number" id="acc-critical" min="1" max="100" value="95" required>
+                </div>
+              </div>
+              <div class="modal-actions">
+                <button type="button" id="modal-cancel-btn" class="button button-secondary">Cancel</button>
+                <button type="submit" class="button button-action">Save Account</button>
+              </div>
+            </form>
+          </div>
+        </dialog>
       </main>
 
       <footer class="site-footer">

@@ -329,3 +329,57 @@ async def test_login_service_rejects_non_codex_accounts(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="Codex"):
         await service.start(account_config.id, "browser")
+
+
+def test_analytics_service_calculates_burn_rate_and_suggestions() -> None:
+    from time_to_sleep.services import AnalyticsService
+
+    t0 = datetime(2026, 8, 22, 10, 0, tzinfo=UTC)
+    t1 = datetime(2026, 8, 22, 11, 0, tzinfo=UTC)
+
+    analytics = AnalyticsService(now=lambda: t1)
+
+    snap_high = UsageSnapshot(
+        account_id="codex-primary",
+        provider="codex",
+        configured_email="primary@example.com",
+        status=AccountStatus.LIVE,
+        source="test",
+        retrieved_at=t0,
+        windows=[UsageWindow(id="primary", used_percent=50.0)],
+    )
+    analytics.record_snapshot(snap_high)
+
+    snap_high_later = UsageSnapshot(
+        account_id="codex-primary",
+        provider="codex",
+        configured_email="primary@example.com",
+        status=AccountStatus.LIVE,
+        source="test",
+        retrieved_at=t1,
+        windows=[UsageWindow(id="primary", used_percent=90.0)],
+    )
+
+    snap_alt = UsageSnapshot(
+        account_id="codex-secondary",
+        provider="codex",
+        configured_email="secondary@example.com",
+        status=AccountStatus.LIVE,
+        source="test",
+        retrieved_at=t1,
+        windows=[UsageWindow(id="primary", used_percent=10.0)],
+    )
+
+    result = analytics.analyze([snap_high_later, snap_alt])
+
+    assert len(result.accounts) == 2
+    primary_analytics = next(a for a in result.accounts if a.account_id == "codex-primary")
+    sec_analytics = next(a for a in result.accounts if a.account_id == "codex-secondary")
+
+    # Burn rate: 40% in 1 hour = 40%/hr
+    assert primary_analytics.burn_rate_per_hour == 40.0
+    # Remaining: 10% -> 10/40 * 60 = 15 minutes
+    assert primary_analytics.minutes_to_exhaustion == 15
+    assert sec_analytics.recommended is True
+    assert len(result.suggestions) > 0
+    assert "Recommended alternatives" in result.suggestions[0]

@@ -24,10 +24,17 @@ on first load; use the header toggle to persist an explicit light or dark choice
 Run the verification commands with:
 
 ```bash
-uv run pytest
+uv run pytest          # unit/integration tests + coverage report
 uv run ruff format --check .
 uv run ruff check .
 uv run ty check
+```
+
+These four checks run in CI on every push and pull request. The end-to-end
+browser test below is **local-only** (it needs a headed Chromium and a live
+server) and is not part of CI:
+
+```bash
 uv run playwright install chromium
 uv run python tests/browser_dashboard.py
 ```
@@ -52,6 +59,17 @@ The configured accounts are:
 - Claude Code: `wzf5350@gmail.com` in `~/.claude`
 - Antigravity: `wzf5350@gmail.com` through the local `agy`/Antigravity server
 
+## CLI & Shell Statuslines
+
+```bash
+# Print formatted terminal status ledger
+uv run time-to-sleep status
+
+# Output compact string for Starship prompt, tmux, or zsh/fish status bar
+uv run time-to-sleep prompt --format=compact
+uv run time-to-sleep prompt --format=tmux
+```
+
 ## API
 
 ```bash
@@ -59,11 +77,17 @@ curl -s http://127.0.0.1:4141/health
 curl -s http://127.0.0.1:4141/v1/accounts
 curl -s http://127.0.0.1:4141/v1/usage
 curl -s 'http://127.0.0.1:4141/v1/usage?force_refresh=true'
+curl -s http://127.0.0.1:4141/v1/analytics
+curl -N -s http://127.0.0.1:4141/v1/events
 ```
 
 `/v1/usage` returns one normalized record per configured account, even when a
 provider is unavailable. Each record includes its status, source, observation time,
 retrieval time, windows, and diagnostic error code when applicable.
+`/v1/analytics` calculates real-time consumption velocity, estimated runway to quota
+exhaustion, and smart switching recommendations.
+`/v1/events` provides a Server-Sent Events (SSE) stream for real-time live push updates.
+
 
 ## Codex login setup
 
@@ -121,3 +145,8 @@ Open `macOS/Time-to-Sleep.app` or compile it via `macOS/build.sh`.
 
 **Note on environment:**
 The macOS app automatically resolves your project directory (relative to your home folder: `~/projects/time-to-sleep`) to launch the `uv` backend process in the background. It also reads the `PORT` from your `.env` file to know where the FastAPI service is listening. If you exit the menu bar app, it will safely shut down the background `uv` backend process.
+
+## Roadmap & Future Enhancements
+
+See [docs/ROADMAP.md](file:///Users/zhoufuwang/projects/time-to-sleep/docs/ROADMAP.md) for detailed plans on predictive analytics (time-to-exhaustion calculations), desktop notifications, real-time push updates (SSE), and terminal statusline integrations.
+

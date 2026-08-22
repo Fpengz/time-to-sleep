@@ -6,9 +6,11 @@ from pathlib import Path
 from uuid import uuid4
 
 from time_to_sleep.domain import (
+    AccountAnalytics,
     AccountConfig,
     AccountStatus,
     AccountStatusView,
+    AnalyticsResponse,
     ErrorCode,
     LoginAttempt,
     LoginChallenge,
@@ -332,3 +334,126 @@ class LoginService:
             with suppress(asyncio.CancelledError):
                 await task
         await record.session.close()
+
+
+class AnalyticsService:
+    def __init__(self, now: Callable[[], datetime] | None = None) -> None:
+        self._history: dict[str, list[tuple[datetime, float]]] = {}
+        self._now = now or (lambda: datetime.now(UTC))
+
+    def record_snapshot(self, snapshot: UsageSnapshot) -> None:
+        if not snapshot.windows:
+            return
+        max_pct = max(w.used_percent for w in snapshot.windows)
+        ts = snapshot.retrieved_at or self._now()
+        if snapshot.account_id not in self._history:
+            self._history[snapshot.account_id] = []
+
+        hist = self._history[snapshot.account_id]
+        if hist and abs((ts - hist[-1][0]).total_seconds()) < 10:
+            hist[-1] = (ts, max_pct)
+        else:
+            hist.append((ts, max_pct))
+            if len(hist) > 60:
+                hist.pop(0)
+
+    def analyze(
+        self, snapshots: list[UsageSnapshot], settings: Settings | None = None
+    ) -> AnalyticsResponse:
+        for s in snapshots:
+            self.record_snapshot(s)
+
+        now = self._now()
+        account_analytics: list[AccountAnalytics] = []
+        thresholds_map: dict[str, float] = {}
+        if settings:
+            for acc in settings.accounts:
+                thresholds_map[acc.id] = acc.warning_threshold
+
+        for s in snapshots:
+            current_pct = max((w.used_percent for w in s.windows), default=0.0)
+            hist = self._history.get(s.account_id, [])
+            burn_rate: float | None = None
+            minutes_to_exhaust: int | None = None
+
+            if len(hist) >= 2:
+                first_ts, first_pct = hist[0]
+                last_ts, last_pct = hist[-1]
+                delta_sec = (last_ts - first_ts).total_seconds()
+                if delta_sec >= 60:
+                    delta_hours = delta_sec / 3600.0
+                    delta_pct = last_pct - first_pct
+                    rate = delta_pct / delta_hours
+                    if rate > 0.1:
+                        burn_rate = round(rate, 2)
+                        remaining_pct = 100.0 - current_pct
+                        if remaining_pct > 0:
+                            minutes_to_exhaust = max(
+                                1, int(round((remaining_pct / burn_rate) * 60))
+                            )
+
+            account_analytics.append(
+                AccountAnalytics(
+                    account_id=s.account_id,
+                    provider=s.provider,
+                    current_percent=current_pct,
+                    burn_rate_per_hour=burn_rate,
+                    minutes_to_exhaustion=minutes_to_exhaust,
+                    status=s.status,
+                )
+            )
+
+        healthy_alternatives = [
+            a
+            for a in account_analytics
+            if a.status == AccountStatus.LIVE and a.current_percent < 50.0
+        ]
+        high_usage_accounts = [
+            a
+            for a in account_analytics
+            if a.status == AccountStatus.LIVE
+            and a.current_percent >= thresholds_map.get(a.account_id, 80.0)
+        ]
+
+        suggestions: list[str] = []
+        if high_usage_accounts:
+            for high_acc in high_usage_accounts:
+                prov_name = high_acc.provider.capitalize()
+                if healthy_alternatives:
+                    alt_names = ", ".join(
+                        f"{a.provider.capitalize()} ({a.account_id})" for a in healthy_alternatives
+                    )
+                    suggestions.append(
+                        f"{prov_name} ({high_acc.account_id}) is at "
+                        f"{high_acc.current_percent:.1f}%. "
+                        f"Recommended alternatives: {alt_names}."
+                    )
+                else:
+                    suggestions.append(
+                        f"{prov_name} ({high_acc.account_id}) is near limit "
+                        f"({high_acc.current_percent:.1f}%)."
+                    )
+
+        for s in snapshots:
+            if s.status == AccountStatus.RATE_LIMITED:
+                suggestions.append(
+                    f"{s.provider.capitalize()} ({s.account_id}) is currently rate-limited."
+                )
+
+        recommended_id = None
+        if healthy_alternatives:
+            recommended_id = min(healthy_alternatives, key=lambda a: a.current_percent).account_id
+
+        final_accounts = []
+        for a in account_analytics:
+            is_rec = a.account_id == recommended_id
+            reason = "Lowest active usage" if is_rec else None
+            final_accounts.append(
+                a.model_copy(update={"recommended": is_rec, "recommendation_reason": reason})
+            )
+
+        return AnalyticsResponse(
+            generated_at=now,
+            accounts=final_accounts,
+            suggestions=suggestions,
+        )
