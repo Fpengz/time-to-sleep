@@ -1059,47 +1059,26 @@ function renderMacroChart() {
     return;
   }
 
-  // Group into distinct series by (account_id, window_id)
-  const seriesMap = new Map();
-  points.forEach((p) => {
-    const key = `${p.account_id}::${p.window_id}`;
-    if (!seriesMap.has(key)) {
-      seriesMap.set(key, {
-        accountId: p.account_id,
-        windowId: p.window_id,
-        provider: p.provider,
-        points: [],
-      });
-    }
-    seriesMap.get(key).points.push(p);
-  });
+  const accountIds = [...new Set(points.map((p) => p.account_id))];
+  if (accountIds.length === 0) return;
 
-  if (seriesMap.size === 0) return;
-
-  // Render Legend
+  // Render clean legend (1 item per account)
   if (legend) {
-    seriesMap.forEach((series) => {
-      const snap = state.snapshots.find((s) => s.account_id === series.accountId);
-      const prov = snap?.provider || series.provider || "codex";
-      const color = getSeriesColor(prov, series.accountId, series.windowId);
-      const isMultiWindow = [...seriesMap.values()].filter((s) => s.accountId === series.accountId).length > 1;
-
+    accountIds.forEach((accId) => {
+      const snap = state.snapshots.find((s) => s.account_id === accId);
+      const prov = snap?.provider || (points.find((p) => p.account_id === accId)?.provider) || "codex";
+      const color = getAccountColor({ provider: prov, account_id: accId });
       const item = element("div", { className: "legend-item" });
       const dot = element("span", { className: "legend-color" });
       dot.style.background = color;
-      if (series.windowId === "seven_day") {
-        dot.style.borderRadius = "1px";
-        dot.style.border = "1px dashed var(--muted)";
-      }
-
-      const windowSuffix = isMultiWindow ? ` · ${formatWindow(series.windowId)}` : "";
-      const lbl = element("span", { text: `${providerLabel(prov)}${windowSuffix} (${series.accountId})` });
+      const labelText = snap ? `${accountLabel(snap)} (${accId})` : `${providerLabel(prov)} (${accId})`;
+      const lbl = element("span", { text: labelText });
       append(item, dot, lbl);
       legend.append(item);
     });
   }
 
-  // Draw Multi-series SVG
+  // Draw Multi-series SVG (Peak quota usage per account over time)
   const width = 800;
   const height = 180;
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -1131,16 +1110,28 @@ function renderMacroChart() {
   const maxTime = Math.max(...timestamps);
   const timeSpan = Math.max(maxTime - minTime, 1);
 
-  // Plot path per (account, window) series
-  seriesMap.forEach((series) => {
-    const accPoints = series.points.sort(
+  // Plot 1 clean line per account (peak quota across windows at each timestamp)
+  accountIds.forEach((accId) => {
+    const accRawPoints = points.filter((p) => p.account_id === accId);
+    if (accRawPoints.length === 0) return;
+
+    // Group by timestamp and pick the peak usage window
+    const timeMap = new Map();
+    accRawPoints.forEach((p) => {
+      const t = new Date(p.observed_at).getTime();
+      const existing = timeMap.get(t);
+      if (existing === undefined || p.used_percent > existing.used_percent) {
+        timeMap.set(t, p);
+      }
+    });
+
+    const accPoints = Array.from(timeMap.values()).sort(
       (a, b) => new Date(a.observed_at).getTime() - new Date(b.observed_at).getTime()
     );
-    if (accPoints.length === 0) return;
 
-    const snap = state.snapshots.find((s) => s.account_id === series.accountId);
-    const prov = snap?.provider || series.provider || "codex";
-    const color = getSeriesColor(prov, series.accountId, series.windowId);
+    const snap = state.snapshots.find((s) => s.account_id === accId);
+    const prov = snap?.provider || accPoints[0].provider;
+    const color = getAccountColor({ provider: prov, account_id: accId });
 
     const coords = accPoints.map((p) => {
       const t = new Date(p.observed_at).getTime();
@@ -1156,9 +1147,6 @@ function renderMacroChart() {
     polyline.setAttribute("stroke-width", "2.5");
     polyline.setAttribute("stroke-linecap", "round");
     polyline.setAttribute("stroke-linejoin", "round");
-    if (series.windowId === "seven_day") {
-      polyline.setAttribute("stroke-dasharray", "5 3");
-    }
     svg.append(polyline);
   });
 
