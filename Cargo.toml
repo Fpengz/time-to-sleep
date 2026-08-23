@@ -1,0 +1,51 @@
+[package]
+name = "time-to-sleep"
+version = "0.1.0"
+edition = "2021"
+authors = ["time-to-sleep contributors"]
+description = "High-performance local usage retrieval for AI coding assistants."
+
+[lib]
+name = "time_to_sleep"
+path = "rust/src/lib.rs"
+
+[[bin]]
+name = "time-to-sleep"
+path = "rust/src/main.rs"
+
+[[bin]]
+name = "benchmark"
+path = "rust/src/bin/benchmark.rs"
+
+[dependencies]
+tokio = { version = "1.43", features = ["full"] }
+axum = { version = "0.8", features = ["macros"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["cors", "trace", "fs"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rusqlite = { version = "0.33", features = ["bundled", "chrono"] }
+chrono = { version = "0.4", features = ["serde"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+clap = { version = "4.5", features = ["derive"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+security-framework = "3.2"
+rust-embed = "8.5"
+ratatui = "0.29"
+crossterm = "0.28"
+async-trait = "0.1"
+futures = "0.3"
+anyhow = "1.0"
+thiserror = "2.0"
+dirs = "6.0"
+dotenvy = "0.15"
+mime_guess = "2.0"
+tokio-stream = { version = "0.1", features = ["sync"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

@@ -175,17 +175,31 @@ function formatResetCountdown(timestamp) {
 
 function formatWindow(id) {
   const labels = {
-    five_hour: "5-Hour",
-    seven_day: "7-Day",
-    primary: "Primary",
-    secondary: "Secondary",
-    weekly: "Weekly",
-    monthly: "Monthly",
-    third_party_weekly: "Claude + GPT Weekly",
-    third_party_five_hour: "Claude + GPT Five Hour",
+    gemini_weekly: "Gemini",
+    gemini_five_hour: "Gemini",
+    third_party_weekly: "Claude & GPT",
+    third_party_five_hour: "Claude & GPT",
+    five_hour: "5-Hour Quota",
+    seven_day: "7-Day Quota",
+    primary: "Session Window",
+    secondary: "Weekly Window",
+    weekly: "Weekly Quota",
+    monthly: "Monthly Quota",
   };
   if (labels[id]) return labels[id];
-  return id.split("_").map((part) => part[0].toUpperCase() + part.slice(1)).join(" ");
+  return id.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function getWindowBadge(window) {
+  if (window.window_minutes) {
+    if (window.window_minutes >= 10000) return "Monthly";
+    if (window.window_minutes >= 1000) return "7-Day";
+    if (window.window_minutes >= 60) return `${Math.round(window.window_minutes / 60)}h`;
+    return `${window.window_minutes}m`;
+  }
+  if (window.id.includes("weekly") || window.id.includes("7_day") || window.id.includes("seven_day")) return "7-Day";
+  if (window.id.includes("five_hour") || window.id.includes("5h")) return "5-Hour";
+  return "Quota";
 }
 
 function formatPercent(percent) {
@@ -279,7 +293,7 @@ function renderHeroGauge(gauge) {
   const pct = hasPeak ? peak : 0;
   const arcColor = hasPeak ? usageColorVar(pct) : "var(--line-strong)";
 
-  gauge.append(ringSvg(210, 12, pct, arcColor));
+  gauge.append(ringSvg(170, 10, pct, arcColor));
 
   const center = element("div", { className: "hero-gauge-center" });
   const value = element("div", { className: "gauge-value" });
@@ -368,21 +382,21 @@ function renderSummary() {
 
 function renderWindow(window) {
   const wrapper = element("div", { className: "usage-window" });
-  const heading = element("div", { className: "window-heading" });
   
-  const titleGroup = element("div", { className: "window-title-group" });
-  titleGroup.append(element("span", { className: "window-name", text: formatWindow(window.id) }));
-  if (window.window_minutes) {
-    titleGroup.append(element("span", { className: "window-badge", text: window.window_minutes >= 1000 ? "7-day" : "5-hour" }));
-  }
+  const top = element("div", { className: "window-top" });
+  const titleBox = element("div", { className: "window-title-box" });
+  titleBox.append(
+    element("span", { className: "window-name", text: formatWindow(window.id) }),
+    element("span", { className: "window-badge", text: getWindowBadge(window) })
+  );
 
-  const statGroup = element("div", { className: "window-stat-group" });
-  const usedVal = element("strong", { className: "window-used-val", text: formatPercent(window.used_percent) });
+  const statBox = element("div", { className: "window-stat-box" });
+  const usedVal = element("span", { className: "window-used-val", text: formatPercent(window.used_percent) });
   const remainingPercent = Math.max(0, 100 - window.used_percent);
-  const remainingSub = element("span", { className: "window-remaining-sub", text: `${formatPercent(remainingPercent)} remaining` });
-  append(statGroup, usedVal, remainingSub);
+  const remainingSub = element("span", { className: "window-remaining-sub", text: `${formatPercent(remainingPercent)} left` });
+  append(statBox, usedVal, remainingSub);
 
-  append(heading, titleGroup, statGroup);
+  append(top, titleBox, statBox);
 
   const track = element("div", {
     className: "meter",
@@ -403,20 +417,25 @@ function renderWindow(window) {
   }
   track.append(fill);
 
-  const detail = element("div", { className: "window-detail" });
-  const resetText = element("span", { className: "window-reset-date", text: formatReset(window.resets_at) });
-  detail.append(resetText);
+  const footer = element("div", { className: "window-footer" });
+  const resetLeft = element("div", { className: "window-reset-left" });
+  if (window.resets_at) {
+    resetLeft.append(
+      element("span", { className: "reset-clock-icon", text: "⏱" }),
+      element("span", { className: "window-reset-date", text: formatReset(window.resets_at) })
+    );
+  } else {
+    resetLeft.append(element("span", { className: "window-reset-date", text: "Rolling limit" }));
+  }
+
+  footer.append(resetLeft);
   
   const countdown = formatResetCountdown(window.resets_at);
   if (countdown) {
-    detail.append(element("span", { className: "window-countdown-pill", text: countdown }));
+    footer.append(element("span", { className: "window-countdown-pill", text: countdown }));
   }
 
-  if (window.window_minutes) {
-    detail.append(element("span", { className: "window-cycle-note", text: ` · ${window.window_minutes >= 1000 ? "7-day" : "5-hour"} window` }));
-  }
-
-  append(wrapper, heading, track, detail);
+  append(wrapper, top, track, footer);
   return wrapper;
 }
 
@@ -543,7 +562,7 @@ function renderAccount(snapshot) {
         title: `Peak window usage: ${formatPercent(peak)}`,
       },
     });
-    gauge.append(ringSvg(62, 6, peak, usageColorVar(peak)));
+    gauge.append(ringSvg(54, 5, peak, usageColorVar(peak)));
     const num = element("div", { className: "account-gauge-num" });
     num.append(document.createTextNode(String(Math.round(peak))), element("small", { text: "%" }));
     gauge.append(num);
@@ -634,18 +653,27 @@ function renderAccount(snapshot) {
     const statsStrip = element("div", { className: "account-stats-strip" });
     if (accAnalytics.burn_rate_per_hour) {
       const stat = element("div", { className: "stat-item" });
-      append(stat, element("span", { className: "stat-label", text: "Burn Rate" }), element("span", { className: "stat-value", text: `${accAnalytics.burn_rate_per_hour}% / hr` }));
+      const icon = element("span", { className: "stat-icon", text: "🔥" });
+      const content = element("div", { className: "stat-content" });
+      append(content, element("span", { className: "stat-label", text: "Burn Rate" }), element("span", { className: "stat-value", text: `${accAnalytics.burn_rate_per_hour}% / hr` }));
+      append(stat, icon, content);
       statsStrip.append(stat);
     }
     if (accAnalytics.minutes_to_exhaustion) {
       const stat = element("div", { className: "stat-item" });
+      const icon = element("span", { className: "stat-icon", text: "⏳" });
+      const content = element("div", { className: "stat-content" });
       const hours = Math.round(accAnalytics.minutes_to_exhaustion / 60);
-      append(stat, element("span", { className: "stat-label", text: "Est. Runway" }), element("span", { className: "stat-value", text: `~${hours}h remaining` }));
+      append(content, element("span", { className: "stat-label", text: "Est. Runway" }), element("span", { className: "stat-value", text: `~${hours}h remaining` }));
+      append(stat, icon, content);
       statsStrip.append(stat);
     }
     if (accAnalytics.recommendation_reason) {
       const stat = element("div", { className: "stat-item stat-item-reason" });
-      append(stat, element("span", { className: "stat-label", text: "Routing Note" }), element("span", { className: "stat-value", text: accAnalytics.recommendation_reason }));
+      const icon = element("span", { className: "stat-icon", text: "★" });
+      const content = element("div", { className: "stat-content" });
+      append(content, element("span", { className: "stat-label", text: "Smart Routing" }), element("span", { className: "stat-value", text: accAnalytics.recommendation_reason }));
+      append(stat, icon, content);
       statsStrip.append(stat);
     }
     card.append(statsStrip);
@@ -1695,12 +1723,20 @@ document.addEventListener("DOMContentLoaded", () => {
   refresh();
   setupEventSource();
   
-  // Update relative timestamps every minute
+  // Update relative timestamps every minute when visible
   setInterval(() => {
+    if (document.hidden) return;
     if (!state.loading && state.snapshots.length > 0) {
       if (state.lastGeneratedAt) {
         updateTimestamp(state.lastGeneratedAt);
       }
     }
   }, 60000);
+
+  // Refresh relative timestamps immediately when returning to tab
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden && !state.loading && state.lastGeneratedAt) {
+      updateTimestamp(state.lastGeneratedAt);
+    }
+  });
 });

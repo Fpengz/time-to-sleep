@@ -55,6 +55,7 @@ class AntigravityProvider:
         self.command = command
         self.startup_timeout = startup_timeout
         self.request_timeout = request_timeout
+        self._cached_server: _LocalServer | None = None
 
     async def fetch(self, account: AccountConfig) -> UsageSnapshot:
         retrieved_at = self.now().astimezone(UTC)
@@ -143,6 +144,7 @@ class AntigravityProvider:
                     break
                 await asyncio.sleep(0.25)
         if quota_document is None:
+            self._cached_server = None
             raise AntigravitySourceError(
                 ErrorCode.NO_RECENT_DATA,
                 "Antigravity did not return a quota summary; retry while agy is signed in",
@@ -174,6 +176,11 @@ class AntigravityProvider:
         return None
 
     async def _find_server(self, pid: int | None = None) -> _LocalServer | None:
+        if pid is None and self._cached_server is not None:
+            if await self._post_probe(self._cached_server):
+                return self._cached_server
+            self._cached_server = None
+
         process_rows = await self._process_rows()
         for process_pid, command_line in process_rows:
             if pid is not None and process_pid != pid:
@@ -184,6 +191,7 @@ class AntigravityProvider:
             for port in await self._listening_ports(process_pid):
                 server = _LocalServer(process_pid, port, csrf_token)
                 if await self._post_probe(server):
+                    self._cached_server = server
                     return server
         return None
 

@@ -55,6 +55,10 @@ class EventBroadcaster:
     def unsubscribe(self, q: asyncio.Queue[str]) -> None:
         self._subscribers.discard(q)
 
+    @property
+    def has_subscribers(self) -> bool:
+        return bool(self._subscribers)
+
     async def broadcast(self, event_type: str, data: Any) -> None:
         if not self._subscribers:
             return
@@ -241,12 +245,13 @@ async def usage(
     snapshots: list[UsageSnapshot] = await service.collect(force_refresh=force_refresh)
     analytics_data = analytics.analyze(snapshots, settings=settings)
     history_store.record_snapshots(snapshots)
-    payload = {
-        "generated_at": datetime.now(UTC).isoformat(),
-        "accounts": [s.model_dump(mode="json") for s in snapshots],
-    }
-    await broadcaster.broadcast("usage", payload)
-    await broadcaster.broadcast("analytics", analytics_data.model_dump(mode="json"))
+    if broadcaster.has_subscribers:
+        payload = {
+            "generated_at": datetime.now(UTC).isoformat(),
+            "accounts": [s.model_dump(mode="json") for s in snapshots],
+        }
+        await broadcaster.broadcast("usage", payload)
+        await broadcaster.broadcast("analytics", analytics_data.model_dump(mode="json"))
     return {"generated_at": datetime.now(UTC), "accounts": snapshots}
 
 
@@ -294,7 +299,7 @@ async def events_stream(
                 if await request.is_disconnected():
                     break
                 try:
-                    msg = await asyncio.wait_for(queue.get(), timeout=1.0)
+                    msg = await asyncio.wait_for(queue.get(), timeout=20.0)
                     yield msg
                 except TimeoutError:
                     if await request.is_disconnected():

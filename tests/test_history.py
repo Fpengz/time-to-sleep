@@ -54,3 +54,32 @@ def test_history_store_prune() -> None:
     deleted = store.prune(max_days=30)
     assert deleted == 1
     assert len(store.get_history(hours=1000)) == 0
+
+
+def test_history_store_deduplication_and_heatmap() -> None:
+    store = HistoryStore(":memory:")
+    now = datetime(2026, 8, 23, 14, 0, tzinfo=UTC)
+
+    snap = UsageSnapshot(
+        account_id="codex-primary",
+        provider="codex",
+        configured_email="test@example.com",
+        status=AccountStatus.LIVE,
+        source="test",
+        retrieved_at=now,
+        windows=[UsageWindow(id="primary", used_percent=50.0)],
+    )
+
+    # First record should be inserted
+    store.record_snapshots([snap])
+    # Immediate duplicate should be skipped
+    store.record_snapshots([snap])
+
+    history = store.get_history(account_id="codex-primary", hours=24)
+    assert len(history) == 1
+
+    heatmap = store.get_hourly_heatmap(account_id="codex-primary", days=7)
+    assert len(heatmap) == 24
+    hour_14 = next(h for h in heatmap if h.hour == 14)
+    assert hour_14.average_percent == 50.0
+    assert hour_14.samples_count == 1

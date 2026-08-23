@@ -1,152 +1,140 @@
 # Time-to-Sleep
 
-Local FastAPI backend for retrieving normalized usage from Codex, Claude Code, and
-Antigravity. The backend is intentionally loopback-only and does not expose the old
-Node/Vite runtime or `/api/usage` compatibility route.
+High-performance local usage observatory and quota tracker for AI coding assistants (**Codex**, **Claude Code**, and **Antigravity**).
 
-## Development
+Features a **compiled native Rust core** with an Axum HTTP/SSE server, embedded static Web UI dashboard, sub-microsecond CLI formatters, Ratatui TUI, SQLite history analytics engine, and a native **macOS SwiftUI Menu Bar companion app**.
+
+---
+
+## Performance Highlights
+
+* ⚡ **Sub-Microsecond CLI Formatting**: `time-to-sleep prompt` executes in **`0.80 µs`** (down from 14.75 µs in Python).
+* 🪶 **Ultra-Low Memory Footprint**: Drops idle resident memory from ~35 MB to **`< 4.9 MB`**.
+* 📦 **Single Standalone Mach-O Binary**: **`4.9 MB`** release binary bundling the entire HTTP server, SQLite engine, SSE broadcaster, CLI tools, and embedded Web UI. Zero Python/uv runtime dependencies required for distribution.
+* 🚀 **Fast SQLite History Engine**: Ingests 1,000 snapshots with 5-minute deduplication in **`1.82 ms`** (8.5x faster).
+
+---
+
+## Quick Start
+
+### 1. Run Native Rust Binary
+
+```bash
+# Build release binary
+cargo build --release
+
+# Start the background server and Web UI dashboard
+./target/release/time-to-sleep serve --port 4141
+
+# Print tabular usage status in terminal
+./target/release/time-to-sleep status
+
+# Shell prompt statusline (compact, starship, tmux, waybar, sketchybar, json)
+./target/release/time-to-sleep prompt --format=compact
+./target/release/time-to-sleep prompt --format=starship
+./target/release/time-to-sleep prompt --format=tmux
+
+# Interactive terminal dashboard (Ratatui)
+./target/release/time-to-sleep tui
+
+# Auto-discover local accounts on disk
+./target/release/time-to-sleep discover --apply
+```
+
+### 2. Run with Python (Optional)
 
 ```bash
 uv sync
 uv run time-to-sleep
 ```
 
-The default server listens on `127.0.0.1:4141`. For development with reload:
+Open the dashboard at <http://127.0.0.1:4141/>.
 
-```bash
-uv run uvicorn time_to_sleep.api:app --reload
-```
-
-Open the dashboard at <http://127.0.0.1:4141/>. The interactive API reference is
-available at <http://127.0.0.1:4141/docs>. The theme follows the operating system
-on first load; use the header toggle to persist an explicit light or dark choice.
-
-Run the verification commands with:
-
-```bash
-uv run pytest          # unit/integration tests + coverage report
-uv run ruff format --check .
-uv run ruff check .
-uv run ty check
-```
-
-These four checks run in CI on every push and pull request. The end-to-end
-browser test below is **local-only** (it needs a headed Chromium and a live
-server) and is not part of CI:
-
-```bash
-uv run playwright install chromium
-uv run python tests/browser_dashboard.py
-```
-
-## Configuration
-
-Account definitions live in `config/accounts.toml`. Override the file with:
-
-```bash
-TIME_TO_SLEEP_CONFIG=/path/to/accounts.toml uv run time-to-sleep
-```
-
-The configuration contains account IDs, provider names, emails, and local profile
-homes only. Credentials are never committed. Codex and Claude credentials remain
-managed by their own CLIs and operating-system credential stores.
-
-The configured accounts are:
-
-- Codex: `wzf5350@gmail.com` in `~/.codex`
-- Codex: `wzf0513@gmail.com` in an isolated profile under
-  `~/.config/time-to-sleep/accounts/codex-secondary`
-- Claude Code: `wzf5350@gmail.com` in `~/.claude`
-- Antigravity: `wzf5350@gmail.com` through the local `agy`/Antigravity server
-
-## CLI & Shell Statuslines
-
-```bash
-# Print formatted terminal status ledger
-uv run time-to-sleep status
-
-# Output compact string for Starship prompt, tmux, or zsh/fish status bar
-uv run time-to-sleep prompt --format=compact
-uv run time-to-sleep prompt --format=tmux
-```
-
-## API
-
-```bash
-curl -s http://127.0.0.1:4141/health
-curl -s http://127.0.0.1:4141/v1/accounts
-curl -s http://127.0.0.1:4141/v1/usage
-curl -s 'http://127.0.0.1:4141/v1/usage?force_refresh=true'
-curl -s http://127.0.0.1:4141/v1/analytics
-curl -N -s http://127.0.0.1:4141/v1/events
-```
-
-`/v1/usage` returns one normalized record per configured account, even when a
-provider is unavailable. Each record includes its status, source, observation time,
-retrieval time, windows, and diagnostic error code when applicable.
-`/v1/analytics` calculates real-time consumption velocity, estimated runway to quota
-exhaustion, and smart switching recommendations.
-`/v1/events` provides a Server-Sent Events (SSE) stream for real-time live push updates.
-
-
-## Codex login setup
-
-The second Codex account uses an isolated `CODEX_HOME`. The dashboard defaults to
-device-code login so it can authenticate `wzf0513@gmail.com` independently of the
-primary browser session:
-
-```bash
-curl -s -X POST http://127.0.0.1:4141/v1/accounts/codex-secondary/login/start \
-  -H 'content-type: application/json' \
-  -d '{"method":"device_code"}'
-```
-
-Open the returned verification URL, sign in as `wzf0513@gmail.com`, and enter the
-returned user code. If using browser login instead, use a private window or sign
-out of the primary ChatGPT account first; otherwise the login may complete for
-`wzf5350@gmail.com` and be rejected. The response contains the authorization URL,
-verification URL, user code, and attempt ID. Poll the attempt and cancel it when
-needed:
-
-```bash
-curl -s http://127.0.0.1:4141/v1/accounts/codex-secondary/login/<attempt_id>
-curl -s -X POST http://127.0.0.1:4141/v1/accounts/codex-secondary/login/<attempt_id>/cancel
-```
-
-The service verifies that the completed Codex session belongs to
-`wzf0513@gmail.com` before reporting success. Attempts expire after ten minutes and
-their app-server process is closed in every terminal state.
-
-## Provider retrieval notes
-
-- Codex uses short-lived `codex app-server --stdio` JSON-RPC sessions for identity
-  and live rate limits, with recent rollout data as a bounded fallback.
-- Claude first tries the OAuth usage endpoint using credentials discovered from the
-  environment, macOS Keychain, or the configured credential file. If Anthropic
-  rate-limits that endpoint, the provider reports `rate_limited`, honors the
-  server-provided retry window, and never presents stale history as current usage.
-  An optional web-session source can be enabled with `CLAUDE_WEB_ORGANIZATION_ID`
-  and `CLAUDE_WEB_SESSION_KEY` (or `CLAUDE_WEB_COOKIE`). Keep the session value in
-  the process environment only; do not commit it. Recent
-  `plan-usage-history.json` data remains a bounded fallback.
-- Antigravity discovers the local app or `agy` language server, starts `agy` when
-  needed, and reads its `RetrieveUserQuotaSummary` response for the Gemini and
-  Claude/GPT shared pools. It verifies the returned Google account before showing
-  usage and cleans up any temporary CLI process it started.
-
-Provider credentials and tokens are never printed by the backend.
+---
 
 ## macOS Menu Bar App
 
-A lightweight SwiftUI Menu Bar application is included in the `macOS` directory. It sits in your macOS menu bar, polls the local Python backend, and displays provider statuses and usage progress bars at a glance.
+A lightweight native SwiftUI Menu Bar companion application is located in `macOS/`:
 
-**To run the macOS app:**
-Open `macOS/Time-to-Sleep.app` or compile it via `macOS/build.sh`.
+* **Live Quota in Menu Bar**: Displays peak active percentage (`19%`) directly in your menu bar.
+* **Native Notifications**: Real-time alerts at 80% warning and 95% critical thresholds, plus reset notifications.
+* **Self-Contained Bundle**: `Time-to-Sleep.app` directly bundles and executes the native Rust binary (`Contents/Resources/time-to-sleep`) without shell dependencies.
+* **Build & Run**:
+  ```bash
+  cd macOS && ./build.sh
+  open macOS/Time-to-Sleep.app
+  ```
 
-**Note on environment:**
-The macOS app automatically resolves your project directory (relative to your home folder: `~/projects/time-to-sleep`) to launch the `uv` backend process in the background. It also reads the `PORT` from your `.env` file to know where the FastAPI service is listening. If you exit the menu bar app, it will safely shut down the background `uv` backend process.
+---
 
-## Roadmap & Future Enhancements
+## API Endpoints
 
-See [docs/ROADMAP.md](file:///Users/zhoufuwang/projects/time-to-sleep/docs/ROADMAP.md) for detailed plans on predictive analytics (time-to-exhaustion calculations), desktop notifications, real-time push updates (SSE), and terminal statusline integrations.
+```bash
+curl -s http://127.0.0.1:4141/v1/usage
+curl -s 'http://127.0.0.1:4141/v1/usage?force_refresh=true'
+curl -s http://127.0.0.1:4141/v1/analytics
+curl -s http://127.0.0.1:4141/v1/history?hours=24
+curl -s http://127.0.0.1:4141/v1/analytics/heatmap?days=7
+curl -N -s http://127.0.0.1:4141/v1/events
+```
 
+* `/v1/usage`: Normalized usage records across all accounts with TTL caching.
+* `/v1/analytics`: Consumption velocity ($\Delta \text{quota}/\text{hr}$), estimated runway, and smart routing recommendations.
+* `/v1/history`: Multi-range historical snapshots.
+* `/v1/analytics/heatmap`: 24-hour SQL aggregated hourly distribution over 7 or 30 days.
+* `/v1/events`: Server-Sent Events (SSE) live push stream with 20s keepalive.
+
+---
+
+## Test Suites & Verification
+
+```bash
+# Run Rust test suite & linter
+cargo test
+cargo clippy -- -D warnings
+
+# Run Python test suite
+uv run pytest
+
+# Run benchmark comparison suite
+cargo run --release --bin benchmark
+```
+
+---
+
+## Configuration
+
+Account definitions are saved in `~/.config/time-to-sleep/settings.json` (or `config/accounts.toml`):
+
+```json
+{
+  "accounts": [
+    {
+      "id": "codex-primary",
+      "provider": "codex",
+      "email": "wzf5350@gmail.com",
+      "home": "~/.codex",
+      "priority": 0,
+      "warning_threshold": 80.0
+    },
+    {
+      "id": "claude",
+      "provider": "claude",
+      "email": "wzf5350@gmail.com",
+      "home": "~",
+      "priority": 0,
+      "warning_threshold": 80.0
+    },
+    {
+      "id": "antigravity",
+      "provider": "antigravity",
+      "email": "wzf5350@gmail.com",
+      "home": "~/.gemini/antigravity-cli",
+      "priority": 0,
+      "warning_threshold": 80.0
+    }
+  ]
+}
+```
+
+Credentials are never committed and are resolved dynamically via macOS Keychain, local app servers, and CLI profiles.

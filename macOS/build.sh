@@ -19,6 +19,12 @@ cp Info.plist "$CONTENTS_DIR/"
 cp AppIcon.icns "$RESOURCES_DIR/"
 cp MenuIcon.png "$RESOURCES_DIR/"
 
+# Bundle Rust binary if available
+if [ -f "../target/release/time-to-sleep" ]; then
+    cp "../target/release/time-to-sleep" "$RESOURCES_DIR/"
+    chmod +x "$RESOURCES_DIR/time-to-sleep"
+fi
+
 # Compile Swift files
 swiftc -o "$MACOS_DIR/TimeToSleep" Sources/*.swift
 

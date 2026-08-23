@@ -29,21 +29,32 @@ class ClaudeCredentialSource:
     ) -> None:
         self.home = home
         self.keychain_loader = keychain_loader
+        self._cached_token: str | None = None
 
     def get_token(self) -> str | None:
         token = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")
         if token:
             return token.strip()
 
+        if self._cached_token is not None:
+            return self._cached_token
+
         raw = self.keychain_loader() if self.keychain_loader is not None else self._read_keychain()
         token = self._extract_token(raw)
         if token:
+            self._cached_token = token
             return token
 
         credentials_path = self.home / ".credentials.json"
         if credentials_path.is_file():
-            return self._extract_token(credentials_path.read_text(encoding="utf-8"))
+            token = self._extract_token(credentials_path.read_text(encoding="utf-8"))
+            if token:
+                self._cached_token = token
+                return token
         return None
+
+    def invalidate(self) -> None:
+        self._cached_token = None
 
     @staticmethod
     def _extract_token(raw: str | None) -> str | None:
@@ -131,6 +142,8 @@ class ClaudeProvider:
                     },
                 )
             if response.status_code == 401:
+                if hasattr(source, "invalidate"):
+                    source.invalidate()
                 return self._with_fallback(
                     account,
                     retrieved_at,

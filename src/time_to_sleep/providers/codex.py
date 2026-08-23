@@ -277,11 +277,20 @@ class CodexProvider:
 
     @staticmethod
     def _read_rollout_fallback(home: Path) -> ParsedWindows:
+        candidate_files: list[Path] = []
+        for base in (home / "sessions", home / "archived_sessions"):
+            if not base.is_dir():
+                continue
+            for path in base.glob("**/*.jsonl"):
+                candidate_files.append(path)
+                if len(candidate_files) >= 50:
+                    break
+
         files = sorted(
-            [*home.glob("sessions/**/*.jsonl"), *home.glob("archived_sessions/**/*.jsonl")],
+            candidate_files,
             key=lambda path: path.stat().st_mtime,
             reverse=True,
-        )[:40]
+        )[:15]
         newest: ParsedWindows | None = None
         for path in files:
             content = path.read_text(encoding="utf-8", errors="replace")

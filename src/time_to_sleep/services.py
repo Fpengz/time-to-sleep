@@ -23,7 +23,7 @@ from time_to_sleep.providers.codex import CodexLoginSession, LoginTransportFacto
 DEFAULT_TTLS = {
     "codex": timedelta(seconds=60),
     "claude": timedelta(minutes=5),
-    "antigravity": timedelta(0),
+    "antigravity": timedelta(seconds=20),
 }
 DEFAULT_TIMEOUTS = {
     "codex": 15.0,
@@ -364,12 +364,12 @@ class AnalyticsService:
             self.record_snapshot(s)
 
         now = self._now()
-        account_analytics: list[AccountAnalytics] = []
         thresholds_map: dict[str, float] = {}
         if settings:
             for acc in settings.accounts:
                 thresholds_map[acc.id] = acc.warning_threshold
 
+        evaluated_data: list[tuple[UsageSnapshot, float, float | None, int | None]] = []
         for s in snapshots:
             current_pct = max((w.used_percent for w in s.windows), default=0.0)
             hist = self._history.get(s.account_id, [])
@@ -392,49 +392,36 @@ class AnalyticsService:
                                 1, int(round((remaining_pct / burn_rate) * 60))
                             )
 
-            account_analytics.append(
-                AccountAnalytics(
-                    account_id=s.account_id,
-                    provider=s.provider,
-                    current_percent=current_pct,
-                    burn_rate_per_hour=burn_rate,
-                    minutes_to_exhaustion=minutes_to_exhaust,
-                    status=s.status,
-                )
-            )
+            evaluated_data.append((s, current_pct, burn_rate, minutes_to_exhaust))
 
         healthy_alternatives = [
-            a
-            for a in account_analytics
-            if a.status == AccountStatus.LIVE and a.current_percent < 50.0
+            (s.account_id, s.provider, current_pct)
+            for s, current_pct, _, _ in evaluated_data
+            if s.status == AccountStatus.LIVE and current_pct < 50.0
         ]
         high_usage_accounts = [
-            a
-            for a in account_analytics
-            if a.status == AccountStatus.LIVE
-            and a.current_percent >= thresholds_map.get(a.account_id, 80.0)
+            (s.account_id, s.provider, current_pct)
+            for s, current_pct, _, _ in evaluated_data
+            if s.status == AccountStatus.LIVE
+            and current_pct >= thresholds_map.get(s.account_id, 80.0)
         ]
 
         suggestions: list[str] = []
         if high_usage_accounts:
-            for high_acc in high_usage_accounts:
-                prov_name = high_acc.provider.capitalize()
+            for acc_id, prov, curr_pct in high_usage_accounts:
+                prov_name = prov.capitalize()
                 if healthy_alternatives:
                     alt_names = ", ".join(
-                        f"{a.provider.capitalize()} ({a.account_id})" for a in healthy_alternatives
+                        f"{p.capitalize()} ({a_id})" for a_id, p, _ in healthy_alternatives
                     )
                     suggestions.append(
-                        f"{prov_name} ({high_acc.account_id}) is at "
-                        f"{high_acc.current_percent:.1f}%. "
+                        f"{prov_name} ({acc_id}) is at {curr_pct:.1f}%. "
                         f"Recommended alternatives: {alt_names}."
                     )
                 else:
-                    suggestions.append(
-                        f"{prov_name} ({high_acc.account_id}) is near limit "
-                        f"({high_acc.current_percent:.1f}%)."
-                    )
+                    suggestions.append(f"{prov_name} ({acc_id}) is near limit ({curr_pct:.1f}%).")
 
-        for s in snapshots:
+        for s, _, _, _ in evaluated_data:
             if s.status == AccountStatus.RATE_LIMITED:
                 suggestions.append(
                     f"{s.provider.capitalize()} ({s.account_id}) is currently rate-limited."
@@ -442,15 +429,23 @@ class AnalyticsService:
 
         recommended_id = None
         if healthy_alternatives:
-            recommended_id = min(healthy_alternatives, key=lambda a: a.current_percent).account_id
+            recommended_id = min(healthy_alternatives, key=lambda a: a[2])[0]
 
-        final_accounts = []
-        for a in account_analytics:
-            is_rec = a.account_id == recommended_id
-            reason = "Lowest active usage" if is_rec else None
-            final_accounts.append(
-                a.model_copy(update={"recommended": is_rec, "recommendation_reason": reason})
+        final_accounts = [
+            AccountAnalytics(
+                account_id=s.account_id,
+                provider=s.provider,
+                current_percent=current_pct,
+                burn_rate_per_hour=burn_rate,
+                minutes_to_exhaustion=minutes_to_exhaust,
+                status=s.status,
+                recommended=(s.account_id == recommended_id),
+                recommendation_reason=(
+                    "Lowest active usage" if s.account_id == recommended_id else None
+                ),
             )
+            for s, current_pct, burn_rate, minutes_to_exhaust in evaluated_data
+        ]
 
         return AnalyticsResponse(
             generated_at=now,

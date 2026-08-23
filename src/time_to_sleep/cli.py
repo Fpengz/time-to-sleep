@@ -110,12 +110,14 @@ def format_table(snapshots: list[UsageSnapshot]) -> str:
 
 
 def format_prompt(snapshots: list[UsageSnapshot], format_type: str = "compact") -> str:
-    import json as pyjson
-
     if not snapshots:
         if format_type == "json":
+            import json as pyjson
+
             return pyjson.dumps({"accounts": [], "max_used_percent": 0.0, "needs_attention": False})
         elif format_type == "waybar":
+            import json as pyjson
+
             return pyjson.dumps(
                 {
                     "text": "No accounts",
@@ -132,7 +134,8 @@ def format_prompt(snapshots: list[UsageSnapshot], format_type: str = "compact") 
         "antigravity": "AGY",
     }
 
-    accounts_data = []
+    need_json = format_type in ("json", "waybar")
+    accounts_data = [] if need_json else None
     parts = []
     max_pct = 0.0
     needs_attention = False
@@ -145,28 +148,30 @@ def format_prompt(snapshots: list[UsageSnapshot], format_type: str = "compact") 
         if s.status.value != "live":
             needs_attention = True
             parts.append(f"{name}:!")
-            accounts_data.append(
-                {
-                    "account_id": s.account_id,
-                    "provider": s.provider,
-                    "status": s.status.value,
-                    "used_percent": 0.0,
-                    "email": s.configured_email,
-                }
-            )
+            if accounts_data is not None:
+                accounts_data.append(
+                    {
+                        "account_id": s.account_id,
+                        "provider": s.provider,
+                        "status": s.status.value,
+                        "used_percent": 0.0,
+                        "email": s.configured_email,
+                    }
+                )
             continue
 
         if not s.windows:
             parts.append(f"{name}:0%")
-            accounts_data.append(
-                {
-                    "account_id": s.account_id,
-                    "provider": s.provider,
-                    "status": s.status.value,
-                    "used_percent": 0.0,
-                    "email": s.configured_email,
-                }
-            )
+            if accounts_data is not None:
+                accounts_data.append(
+                    {
+                        "account_id": s.account_id,
+                        "provider": s.provider,
+                        "status": s.status.value,
+                        "used_percent": 0.0,
+                        "email": s.configured_email,
+                    }
+                )
             continue
 
         max_w = max(s.windows, key=lambda w: w.used_percent)
@@ -174,19 +179,22 @@ def format_prompt(snapshots: list[UsageSnapshot], format_type: str = "compact") 
         max_pct = max(max_pct, pct)
         rounded_pct = int(round(pct))
         parts.append(f"{name}:{rounded_pct}%")
-        accounts_data.append(
-            {
-                "account_id": s.account_id,
-                "provider": s.provider,
-                "status": s.status.value,
-                "used_percent": pct,
-                "email": s.configured_email,
-            }
-        )
+        if accounts_data is not None:
+            accounts_data.append(
+                {
+                    "account_id": s.account_id,
+                    "provider": s.provider,
+                    "status": s.status.value,
+                    "used_percent": pct,
+                    "email": s.configured_email,
+                }
+            )
 
     joined = " | ".join(parts)
 
     if format_type == "json":
+        import json as pyjson
+
         return pyjson.dumps(
             {
                 "accounts": accounts_data,
@@ -198,6 +206,8 @@ def format_prompt(snapshots: list[UsageSnapshot], format_type: str = "compact") 
         )
 
     if format_type == "waybar":
+        import json as pyjson
+
         status_class = "critical" if max_pct >= 90 else "warning" if max_pct >= 80 else "normal"
         tooltip_lines = []
         for s in snapshots:

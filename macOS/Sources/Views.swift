@@ -51,6 +51,20 @@ enum Palette {
     }
 }
 
+enum SharedFormatters {
+    static let isoStandard = ISO8601DateFormatter()
+    static let isoFractional: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+    static let displayReset: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "EEE, MMM d, h:mm a"
+        return f
+    }()
+}
+
 // MARK: - Reusable components
 
 struct RingGauge: View {
@@ -564,17 +578,13 @@ struct AccountView: View {
 
     private func parseDate(_ dateString: String?) -> Date? {
         guard let dateString = dateString else { return nil }
-        let isoFormatter = ISO8601DateFormatter()
-        if let date = isoFormatter.date(from: dateString) { return date }
-        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return isoFormatter.date(from: dateString)
+        if let date = SharedFormatters.isoStandard.date(from: dateString) { return date }
+        return SharedFormatters.isoFractional.date(from: dateString)
     }
 
     private func formatResetsAt(_ dateString: String?) -> String? {
         guard let date = parseDate(dateString) else { return nil }
-        let displayFormatter = DateFormatter()
-        displayFormatter.dateFormat = "EEE, MMM d, h:mm a"
-        return "Resets \(displayFormatter.string(from: date))"
+        return "Resets \(SharedFormatters.displayReset.string(from: date))"
     }
 
     private func resetCountdown(_ dateString: String?) -> String? {

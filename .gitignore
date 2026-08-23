@@ -4,6 +4,7 @@ node_modules/
 
 # Build output
 dist/
+target/
 
 # Python caches and tooling
 __pycache__/

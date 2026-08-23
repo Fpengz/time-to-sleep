@@ -32,6 +32,8 @@ class HistoryStore:
             Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
+        self._last_records: dict[tuple[str, str], tuple[float, datetime]] = {}
+        self._last_prune: datetime = datetime.now(UTC)
         self._init_db()
 
     def _get_connection(self) -> sqlite3.Connection:
@@ -58,14 +60,29 @@ class HistoryStore:
                 """
             )
             conn.commit()
+        self.prune(max_days=30)
 
     def record_snapshots(self, snapshots: Sequence[UsageSnapshot]) -> None:
         now = datetime.now(UTC)
+        if (now - self._last_prune).total_seconds() > 86400:
+            self.prune(max_days=30)
+            self._last_prune = now
+
         records: list[tuple[str, str, str, float, str]] = []
 
         for s in snapshots:
-            ts = (s.retrieved_at or s.observed_at or now).isoformat()
+            ts_dt = s.retrieved_at or s.observed_at or now
+            ts = ts_dt.isoformat()
             for w in s.windows:
+                key = (s.account_id, w.id)
+                if key in self._last_records:
+                    last_pct, last_time = self._last_records[key]
+                    if (
+                        abs(w.used_percent - last_pct) < 0.001
+                        and (ts_dt - last_time).total_seconds() < 300
+                    ):
+                        continue
+                self._last_records[key] = (w.used_percent, ts_dt)
                 records.append((s.account_id, s.provider, w.id, w.used_percent, ts))
 
         if not records:
@@ -122,19 +139,44 @@ class HistoryStore:
     def get_hourly_heatmap(
         self, account_id: str | None = None, days: int = 7
     ) -> list[HourlyUsageDistribution]:
-        points = self.get_history(account_id=account_id, hours=days * 24)
-        hour_sums: dict[int, list[float]] = {h: [] for h in range(24)}
-        for p in points:
-            hour = p.observed_at.hour
-            hour_sums[hour].append(p.used_percent)
+        cutoff = (datetime.now(UTC) - timedelta(days=days)).isoformat()
+        query = """
+            SELECT CAST(strftime('%H', observed_at) AS INTEGER) AS hr,
+                   AVG(used_percent) AS avg_pct,
+                   COUNT(*) AS sample_cnt
+            FROM usage_history
+            WHERE observed_at >= ?
+        """
+        params: list[Any] = [cutoff]
+        if account_id:
+            query += " AND account_id = ?"
+            params.append(account_id)
+
+        query += " GROUP BY hr"
+
+        with self._get_connection() as conn:
+            cursor = conn.execute(query, params)
+            rows = {row["hr"]: (row["avg_pct"], row["sample_cnt"]) for row in cursor.fetchall()}
 
         result: list[HourlyUsageDistribution] = []
         for h in range(24):
-            vals = hour_sums[h]
-            avg = round(sum(vals) / len(vals), 1) if vals else 0.0
-            result.append(
-                HourlyUsageDistribution(hour=h, average_percent=avg, samples_count=len(vals))
-            )
+            if h in rows:
+                avg, count = rows[h]
+                result.append(
+                    HourlyUsageDistribution(
+                        hour=h,
+                        average_percent=round(float(avg), 1),
+                        samples_count=int(count),
+                    )
+                )
+            else:
+                result.append(
+                    HourlyUsageDistribution(
+                        hour=h,
+                        average_percent=0.0,
+                        samples_count=0,
+                    )
+                )
         return result
 
     def prune(self, max_days: int = 30) -> int:

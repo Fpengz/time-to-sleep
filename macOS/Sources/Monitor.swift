@@ -13,6 +13,7 @@ class UsageMonitor: ObservableObject {
     private var timer: Timer?
     private var previousUsageLevels: [String: Double] = [:]
     private var hasInitializedLevels: Bool = false
+    private var cachedPort: Int?
     
     var highestUsagePercent: Double? {
         accounts.compactMap { $0.maxUsedPercent }.max()
@@ -29,11 +30,13 @@ class UsageMonitor: ObservableObject {
     init() {
         requestNotificationPermission()
         Task { await fetchUsage() }
-        timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
+        let t = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                await self.fetchUsage()
+                await self?.fetchUsage()
             }
         }
+        t.tolerance = 10.0
+        self.timer = t
     }
     
     func requestNotificationPermission() {
@@ -45,20 +48,25 @@ class UsageMonitor: ObservableObject {
     }
     
     func getPort() -> Int {
+        if let port = cachedPort { return port }
         let envPath = (NSHomeDirectory() as NSString).appendingPathComponent("projects/time-to-sleep/.env")
         if let content = try? String(contentsOfFile: envPath, encoding: .utf8) {
             for line in content.split(separator: "\n") {
                 let parts = line.split(separator: "=", maxSplits: 1)
                 if parts.count == 2, parts[0].trimmingCharacters(in: .whitespaces) == "PORT" {
                     if let port = Int(parts[1].trimmingCharacters(in: .whitespacesAndNewlines)) {
+                        cachedPort = port
                         return port
                     }
                 }
             }
         }
+        cachedPort = 4141
         return 4141
     }
     
+    private static let jsonDecoder = JSONDecoder()
+
     func fetchUsage(forceRefresh: Bool = false) async {
         isRefreshing = true
         defer { isRefreshing = false }
@@ -68,9 +76,11 @@ class UsageMonitor: ObservableObject {
         guard let url = URL(string: endpoint) else { return }
         
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
-            let decoder = JSONDecoder()
-            let response = try decoder.decode(UsageResponse.self, from: data)
+            async let usageTask = URLSession.shared.data(from: url)
+            async let historyTask = fetchHistoryPoints(port: port)
+
+            let (data, _) = try await usageTask
+            let response = try Self.jsonDecoder.decode(UsageResponse.self, from: data)
             
             checkThresholdsAndNotify(newAccounts: response.accounts)
             
@@ -79,28 +89,27 @@ class UsageMonitor: ObservableObject {
                 $0.status != "live" 
             }
             self.lastFetchError = nil
-            
-            // Also fetch 24h history for sparklines
-            await fetchHistory()
+
+            if let points = await historyTask {
+                var grouped: [String: [HistoryPointModel]] = [:]
+                for p in points {
+                    grouped[p.account_id, default: []].append(p)
+                }
+                self.accountHistory = grouped
+            }
         } catch {
             self.lastFetchError = error.localizedDescription
             self.needsAttention = true
         }
     }
     
-    private func fetchHistory() async {
-        let port = getPort()
-        guard let url = URL(string: "http://127.0.0.1:\(port)/v1/history?hours=24") else { return }
+    private func fetchHistoryPoints(port: Int) async -> [HistoryPointModel]? {
+        guard let url = URL(string: "http://127.0.0.1:\(port)/v1/history?hours=24") else { return nil }
         do {
             let (data, _) = try await URLSession.shared.data(from: url)
-            let points = try JSONDecoder().decode([HistoryPointModel].self, from: data)
-            var grouped: [String: [HistoryPointModel]] = [:]
-            for p in points {
-                grouped[p.account_id, default: []].append(p)
-            }
-            self.accountHistory = grouped
+            return try Self.jsonDecoder.decode([HistoryPointModel].self, from: data)
         } catch {
-            // History fetch is non-fatal
+            return nil
         }
     }
     
