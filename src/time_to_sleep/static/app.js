@@ -175,6 +175,12 @@ function formatResetCountdown(timestamp) {
 
 function formatWindow(id) {
   const labels = {
+    five_hour: "5-Hour",
+    seven_day: "7-Day",
+    primary: "Primary",
+    secondary: "Secondary",
+    weekly: "Weekly",
+    monthly: "Monthly",
     third_party_weekly: "Claude + GPT Weekly",
     third_party_five_hour: "Claude + GPT Five Hour",
   };
@@ -952,11 +958,23 @@ const providerColors = {
   antigravity: "#d6f66c",
 };
 
-function getAccountColor(account) {
-  if (account.provider === "codex" && account.account_id?.includes("secondary")) {
-    return "#818cf8";
+function getSeriesColor(provider, accountId, windowId) {
+  if (provider === "codex") {
+    if (accountId?.includes("secondary")) return "#818cf8";
+    return "#38bdf8";
   }
-  return providerColors[account.provider] || "#a78bfa";
+  if (provider === "claude") {
+    if (windowId === "seven_day") return "#ea580c";
+    return "#f97316";
+  }
+  if (provider === "antigravity") {
+    return "#d6f66c";
+  }
+  return providerColors[provider] || "#a78bfa";
+}
+
+function getAccountColor(account) {
+  return getSeriesColor(account.provider, account.account_id);
 }
 
 function switchView(viewName) {
@@ -1041,19 +1059,41 @@ function renderMacroChart() {
     return;
   }
 
-  const accountIds = [...new Set(points.map((p) => p.account_id))];
-  if (accountIds.length === 0) return;
+  // Group into distinct series by (account_id, window_id)
+  const seriesMap = new Map();
+  points.forEach((p) => {
+    const key = `${p.account_id}::${p.window_id}`;
+    if (!seriesMap.has(key)) {
+      seriesMap.set(key, {
+        accountId: p.account_id,
+        windowId: p.window_id,
+        provider: p.provider,
+        points: [],
+      });
+    }
+    seriesMap.get(key).points.push(p);
+  });
+
+  if (seriesMap.size === 0) return;
 
   // Render Legend
   if (legend) {
-    accountIds.forEach((accId) => {
-      const snap = state.snapshots.find((s) => s.account_id === accId);
-      const prov = snap?.provider || (points.find((p) => p.account_id === accId)?.provider) || "codex";
-      const color = getAccountColor({ provider: prov, account_id: accId });
+    seriesMap.forEach((series) => {
+      const snap = state.snapshots.find((s) => s.account_id === series.accountId);
+      const prov = snap?.provider || series.provider || "codex";
+      const color = getSeriesColor(prov, series.accountId, series.windowId);
+      const isMultiWindow = [...seriesMap.values()].filter((s) => s.accountId === series.accountId).length > 1;
+
       const item = element("div", { className: "legend-item" });
       const dot = element("span", { className: "legend-color" });
       dot.style.background = color;
-      const lbl = element("span", { text: `${providerLabel(prov)} (${accId})` });
+      if (series.windowId === "seven_day") {
+        dot.style.borderRadius = "1px";
+        dot.style.border = "1px dashed var(--muted)";
+      }
+
+      const windowSuffix = isMultiWindow ? ` · ${formatWindow(series.windowId)}` : "";
+      const lbl = element("span", { text: `${providerLabel(prov)}${windowSuffix} (${series.accountId})` });
       append(item, dot, lbl);
       legend.append(item);
     });
@@ -1091,16 +1131,16 @@ function renderMacroChart() {
   const maxTime = Math.max(...timestamps);
   const timeSpan = Math.max(maxTime - minTime, 1);
 
-  // Plot path per account
-  accountIds.forEach((accId) => {
-    const accPoints = points
-      .filter((p) => p.account_id === accId)
-      .sort((a, b) => new Date(a.observed_at).getTime() - new Date(b.observed_at).getTime());
+  // Plot path per (account, window) series
+  seriesMap.forEach((series) => {
+    const accPoints = series.points.sort(
+      (a, b) => new Date(a.observed_at).getTime() - new Date(b.observed_at).getTime()
+    );
     if (accPoints.length === 0) return;
 
-    const snap = state.snapshots.find((s) => s.account_id === accId);
-    const prov = snap?.provider || accPoints[0].provider;
-    const color = getAccountColor({ provider: prov, account_id: accId });
+    const snap = state.snapshots.find((s) => s.account_id === series.accountId);
+    const prov = snap?.provider || series.provider || "codex";
+    const color = getSeriesColor(prov, series.accountId, series.windowId);
 
     const coords = accPoints.map((p) => {
       const t = new Date(p.observed_at).getTime();
@@ -1116,6 +1156,9 @@ function renderMacroChart() {
     polyline.setAttribute("stroke-width", "2.5");
     polyline.setAttribute("stroke-linecap", "round");
     polyline.setAttribute("stroke-linejoin", "round");
+    if (series.windowId === "seven_day") {
+      polyline.setAttribute("stroke-dasharray", "5 3");
+    }
     svg.append(polyline);
   });
 
@@ -1156,92 +1199,116 @@ function renderDetailedSparklinesGrid() {
     header.append(idWrap);
     card.append(header);
 
-    // Filter points for this account
-    const accPoints = points
-      .filter((p) => p.account_id === acc.account_id)
-      .sort((a, b) => new Date(a.observed_at).getTime() - new Date(b.observed_at).getTime());
-
-    const maxVal = accPoints.length > 0 ? Math.max(...accPoints.map((p) => p.used_percent)) : 0;
-    const minVal = accPoints.length > 0 ? Math.min(...accPoints.map((p) => p.used_percent)) : 0;
-    const currentVal = accPoints.length > 0 ? accPoints[accPoints.length - 1].used_percent : 0;
-    const deltaVal = accPoints.length >= 2 ? currentVal - accPoints[0].used_percent : 0;
-
-    // Stats Row
-    const statsRow = element("div", { className: "detail-stats-row" });
-    [
-      { label: "Current", val: `${currentVal.toFixed(1)}%` },
-      { label: "Peak", val: `${maxVal.toFixed(1)}%` },
-      { label: "Min", val: `${minVal.toFixed(1)}%` },
-      { label: "Net Change", val: `${deltaVal >= 0 ? "+" : ""}${deltaVal.toFixed(1)}%` },
-    ].forEach((s) => {
-      const st = element("div", { className: "detail-stat" });
-      append(st, element("span", { className: "detail-stat-lbl", text: s.label }), element("span", { className: "detail-stat-val", text: s.val }));
-      statsRow.append(st);
-    });
-    card.append(statsRow);
-
-    // Full High-Res Sparkline Chart
-    const chartWrap = element("div", { className: "full-sparkline-wrap" });
-    if (accPoints.length >= 1) {
-      const pts = accPoints.length === 1 ? [accPoints[0], accPoints[0]] : accPoints;
-      const width = 500;
-      const height = 110;
-
-      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-      svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
-      svg.setAttribute("class", "chart-svg-interactive");
-      svg.setAttribute("preserveAspectRatio", "none");
-
-      // Gridlines (0, 50, 100)
-      [0, 50, 100].forEach((pct) => {
-        const y = height - 16 - (pct / 100) * (height - 24);
-        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-        line.setAttribute("x1", "24");
-        line.setAttribute("y1", String(y));
-        line.setAttribute("x2", String(width));
-        line.setAttribute("y2", String(y));
-        line.setAttribute("class", "chart-gridline");
-        svg.append(line);
-
-        const txt = document.createElementNS("http://www.w3.org/2000/svg", "text");
-        txt.setAttribute("x", "2");
-        txt.setAttribute("y", String(y + 3));
-        txt.setAttribute("class", "chart-axis-text");
-        txt.textContent = `${pct}%`;
-        svg.append(txt);
-      });
-
-      const coords = pts.map((p, idx) => {
-        const x = 26 + (idx / (pts.length - 1)) * (width - 32);
-        const y = height - 16 - (Math.min(100, Math.max(0, p.used_percent)) / 100) * (height - 24);
-        return `${x.toFixed(1)},${y.toFixed(1)}`;
-      });
-
-      const polylinePoints = coords.join(" ");
-      const polygonPoints = `26,${height - 16} ${polylinePoints} ${width - 6},${height - 16}`;
-
-      const color = getAccountColor(acc);
-
-      const polygon = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
-      polygon.setAttribute("points", polygonPoints);
-      polygon.setAttribute("fill", color);
-      polygon.setAttribute("opacity", "0.15");
-
-      const polyline = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
-      polyline.setAttribute("points", polylinePoints);
-      polyline.setAttribute("fill", "none");
-      polyline.setAttribute("stroke", color);
-      polyline.setAttribute("stroke-width", "2");
-      polyline.setAttribute("stroke-linecap", "round");
-      polyline.setAttribute("stroke-linejoin", "round");
-
-      svg.append(polygon, polyline);
-      chartWrap.append(svg);
-    } else {
-      chartWrap.append(element("div", { className: "empty-state", text: "No observations recorded in this window." }));
+    // Get all windows for this account present in points
+    const accAllPoints = points.filter((p) => p.account_id === acc.account_id);
+    let windowIds = [...new Set(accAllPoints.map((p) => p.window_id))];
+    if (windowIds.length === 0 && acc.windows?.length) {
+      windowIds = acc.windows.map((w) => w.id);
     }
+    if (windowIds.length === 0) windowIds.push("primary");
 
-    card.append(chartWrap);
+    windowIds.forEach((winId) => {
+      const accPoints = accAllPoints
+        .filter((p) => p.window_id === winId)
+        .sort((a, b) => new Date(a.observed_at).getTime() - new Date(b.observed_at).getTime());
+
+      const maxVal = accPoints.length > 0 ? Math.max(...accPoints.map((p) => p.used_percent)) : 0;
+      const minVal = accPoints.length > 0 ? Math.min(...accPoints.map((p) => p.used_percent)) : 0;
+      const currentVal = accPoints.length > 0 ? accPoints[accPoints.length - 1].used_percent : 0;
+      const deltaVal = accPoints.length >= 2 ? currentVal - accPoints[0].used_percent : 0;
+
+      if (windowIds.length > 1) {
+        const winTitle = element("div", {
+          className: "detail-window-title",
+          text: `${formatWindow(winId)} Window`,
+          attributes: {
+            style: "font-size: 11px; font-weight: 700; color: var(--muted); margin-top: 6px; text-transform: uppercase; letter-spacing: 0.05em;",
+          },
+        });
+        card.append(winTitle);
+      }
+
+      // Stats Row
+      const statsRow = element("div", { className: "detail-stats-row" });
+      [
+        { label: "Current", val: `${currentVal.toFixed(1)}%` },
+        { label: "Peak", val: `${maxVal.toFixed(1)}%` },
+        { label: "Min", val: `${minVal.toFixed(1)}%` },
+        { label: "Net Change", val: `${deltaVal >= 0 ? "+" : ""}${deltaVal.toFixed(1)}%` },
+      ].forEach((s) => {
+        const st = element("div", { className: "detail-stat" });
+        append(st, element("span", { className: "detail-stat-lbl", text: s.label }), element("span", { className: "detail-stat-val", text: s.val }));
+        statsRow.append(st);
+      });
+      card.append(statsRow);
+
+      // Full High-Res Sparkline Chart
+      const chartWrap = element("div", { className: "full-sparkline-wrap" });
+      if (accPoints.length >= 1) {
+        const pts = accPoints.length === 1 ? [accPoints[0], accPoints[0]] : accPoints;
+        const width = 500;
+        const height = 110;
+
+        const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+        svg.setAttribute("class", "chart-svg-interactive");
+        svg.setAttribute("preserveAspectRatio", "none");
+
+        // Gridlines (0, 50, 100)
+        [0, 50, 100].forEach((pct) => {
+          const y = height - 16 - (pct / 100) * (height - 24);
+          const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+          line.setAttribute("x1", "24");
+          line.setAttribute("y1", String(y));
+          line.setAttribute("x2", String(width));
+          line.setAttribute("y2", String(y));
+          line.setAttribute("class", "chart-gridline");
+          svg.append(line);
+
+          const txt = document.createElementNS("http://www.w3.org/2000/svg", "text");
+          txt.setAttribute("x", "2");
+          txt.setAttribute("y", String(y + 3));
+          txt.setAttribute("class", "chart-axis-text");
+          txt.textContent = `${pct}%`;
+          svg.append(txt);
+        });
+
+        const coords = pts.map((p, idx) => {
+          const x = 26 + (idx / (pts.length - 1)) * (width - 32);
+          const y = height - 16 - (Math.min(100, Math.max(0, p.used_percent)) / 100) * (height - 24);
+          return `${x.toFixed(1)},${y.toFixed(1)}`;
+        });
+
+        const polylinePoints = coords.join(" ");
+        const polygonPoints = `26,${height - 16} ${polylinePoints} ${width - 6},${height - 16}`;
+
+        const color = getSeriesColor(acc.provider, acc.account_id, winId);
+
+        const polygon = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+        polygon.setAttribute("points", polygonPoints);
+        polygon.setAttribute("fill", color);
+        polygon.setAttribute("opacity", "0.15");
+
+        const polyline = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+        polyline.setAttribute("points", polylinePoints);
+        polyline.setAttribute("fill", "none");
+        polyline.setAttribute("stroke", color);
+        polyline.setAttribute("stroke-width", "2");
+        polyline.setAttribute("stroke-linecap", "round");
+        polyline.setAttribute("stroke-linejoin", "round");
+        if (winId === "seven_day") {
+          polyline.setAttribute("stroke-dasharray", "4 2");
+        }
+
+        svg.append(polygon, polyline);
+        chartWrap.append(svg);
+      } else {
+        chartWrap.append(element("div", { className: "empty-state", text: "No observations recorded in this window." }));
+      }
+
+      card.append(chartWrap);
+    });
+
     grid.append(card);
   });
 }
