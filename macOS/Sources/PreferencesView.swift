@@ -22,12 +22,21 @@ struct PreferencesView: View {
     var body: some View {
         VStack(spacing: 0) {
             // Header
-            HStack {
+            HStack(spacing: 11) {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(LinearGradient(colors: [Palette.accent, Palette.accent.opacity(0.7)],
+                                         startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .frame(width: 30, height: 30)
+                    .overlay(
+                        Image(systemName: "gearshape.fill")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(Color(NSColor.windowBackgroundColor))
+                    )
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Time-to-Sleep Preferences")
+                    Text("Preferences")
                         .font(.title3)
                         .fontWeight(.semibold)
-                    Text("Manage AI assistant accounts and alert thresholds")
+                    Text("Manage accounts and alert thresholds")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -45,7 +54,7 @@ struct PreferencesView: View {
                     }
                 }
                 .disabled(isScanning)
-                
+
                 Button {
                     openNewAccountSheet()
                 } label: {
@@ -54,9 +63,11 @@ struct PreferencesView: View {
                         Text("Add Account")
                     }
                 }
+                .buttonStyle(.borderedProminent)
+                .tint(Palette.accent)
             }
             .padding(16)
-            
+
             Divider()
             
             if let error = errorMessage {
@@ -108,17 +119,26 @@ struct PreferencesView: View {
             // Accounts list
             List {
                 ForEach(accounts) { acc in
+                    let color = Palette.provider(acc.provider, id: acc.id)
                     HStack(alignment: .center, spacing: 12) {
+                        Text(String(acc.provider.prefix(2)).uppercased())
+                            .font(.system(size: 11, weight: .heavy))
+                            .foregroundColor(color)
+                            .frame(width: 32, height: 32)
+                            .background(RoundedRectangle(cornerRadius: 9).fill(color.opacity(0.14)))
+                            .overlay(RoundedRectangle(cornerRadius: 9).stroke(color.opacity(0.35), lineWidth: 1))
+
                         VStack(alignment: .leading, spacing: 3) {
                             HStack(spacing: 6) {
                                 Text(acc.id)
-                                    .fontWeight(.medium)
+                                    .fontWeight(.semibold)
                                 Text(acc.provider.capitalized)
-                                    .font(.caption2)
-                                    .padding(.horizontal, 4)
-                                    .padding(.vertical, 1)
-                                    .background(Color.secondary.opacity(0.15))
-                                    .cornerRadius(3)
+                                    .font(.system(size: 9, weight: .bold))
+                                    .foregroundColor(color)
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 1.5)
+                                    .background(color.opacity(0.14))
+                                    .clipShape(Capsule())
                             }
                             Text(acc.email)
                                 .font(.caption)
@@ -126,23 +146,20 @@ struct PreferencesView: View {
                             Text(acc.home)
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
-                            HStack(spacing: 8) {
-                                Text("Warn: \(Int(acc.warning_threshold ?? 80))%")
-                                    .font(.system(size: 10))
-                                    .foregroundColor(.orange)
-                                Text("Crit: \(Int(acc.critical_threshold ?? 95))%")
-                                    .font(.system(size: 10))
-                                    .foregroundColor(.red)
+                            HStack(spacing: 6) {
+                                thresholdPill("WARN \(Int(acc.warning_threshold ?? 80))%", color: Palette.warn)
+                                thresholdPill("CRIT \(Int(acc.critical_threshold ?? 95))%", color: Palette.danger)
                             }
+                            .padding(.top, 1)
                         }
-                        
+
                         Spacer()
-                        
+
                         Button("Edit") {
                             openEditAccountSheet(acc)
                         }
                         .controlSize(.small)
-                        
+
                         Button(role: .destructive) {
                             Task { await deleteAccount(acc.id) }
                         } label: {
@@ -150,7 +167,7 @@ struct PreferencesView: View {
                         }
                         .controlSize(.small)
                     }
-                    .padding(.vertical, 4)
+                    .padding(.vertical, 5)
                 }
             }
             .listStyle(.inset)
@@ -222,6 +239,16 @@ struct PreferencesView: View {
         }
     }
     
+    private func thresholdPill(_ text: String, color: Color) -> some View {
+        Text(text)
+            .font(.system(size: 9, weight: .bold))
+            .foregroundColor(color)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 1.5)
+            .background(color.opacity(0.12))
+            .clipShape(Capsule())
+    }
+
     private func loadAccounts() async {
         let port = monitor.getPort()
         guard let url = URL(string: "http://127.0.0.1:\(port)/v1/accounts") else { return }

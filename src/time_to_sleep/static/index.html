@@ -45,6 +45,15 @@
 
         <!-- VIEW 1: LEDGER (Overview) -->
         <div id="view-ledger" class="page-view active">
+          <section class="hero" id="hero" aria-label="Fleet overview">
+            <div class="hero-copy-block">
+              <p class="eyebrow">Usage observatory</p>
+              <h1 id="page-title" class="page-title">Reading the sky<br><em>over your quota.</em></h1>
+              <p id="hero-copy" class="hero-copy">Listening for the first provider sync…</p>
+            </div>
+            <div class="hero-gauge" id="hero-gauge" aria-hidden="true"></div>
+          </section>
+
           <section id="summary" class="signal-strip" aria-label="Usage summary"></section>
 
           <section id="provider-ledger" class="accounts-section" aria-labelledby="accounts-title">

@@ -209,6 +209,134 @@ function refreshAnnouncement(usageResult, accountsResult) {
 
 
 
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+function svgEl(tag, attrs = {}) {
+  const node = document.createElementNS(SVG_NS, tag);
+  for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, String(value));
+  return node;
+}
+
+function usageColorVar(percent) {
+  if (percent >= 90) return "var(--danger)";
+  if (percent >= 75) return "var(--warning)";
+  return "var(--accent)";
+}
+
+function providerVar(provider, accountId) {
+  if (provider === "codex" && accountId && accountId.includes("secondary")) return "var(--p-codex-2)";
+  return {
+    codex: "var(--p-codex)",
+    claude: "var(--p-claude)",
+    antigravity: "var(--p-antigravity)",
+  }[provider] || "var(--accent)";
+}
+
+function ringSvg(size, stroke, percent, strokeVar) {
+  const radius = size / 2 - stroke / 2 - 1;
+  const circumference = 2 * Math.PI * radius;
+  const clamped = Math.max(0, Math.min(100, percent));
+  const offset = circumference * (1 - clamped / 100);
+  const svg = svgEl("svg", { viewBox: `0 0 ${size} ${size}` });
+  svg.append(
+    svgEl("circle", { class: "gauge-track", cx: size / 2, cy: size / 2, r: radius }),
+    svgEl("circle", {
+      class: "gauge-arc",
+      cx: size / 2,
+      cy: size / 2,
+      r: radius,
+      stroke: strokeVar,
+      "stroke-dasharray": circumference.toFixed(2),
+      "stroke-dashoffset": offset.toFixed(2),
+    }),
+  );
+  return svg;
+}
+
+function fleetPeakUsage() {
+  const values = state.snapshots.flatMap((s) => (s.windows || []).map((w) => w.used_percent));
+  return values.length ? Math.max(...values) : null;
+}
+
+function accountPeakUsage(snapshot) {
+  const values = (snapshot.windows || []).map((w) => w.used_percent);
+  return values.length ? Math.max(...values) : null;
+}
+
+function renderHeroGauge(gauge) {
+  if (!gauge) return;
+  gauge.replaceChildren();
+  const counts = snapshotCounts();
+  const total = state.snapshots.length;
+  const peak = fleetPeakUsage();
+  const hasPeak = peak !== null;
+  const pct = hasPeak ? peak : 0;
+  const arcColor = hasPeak ? usageColorVar(pct) : "var(--line-strong)";
+
+  gauge.append(ringSvg(210, 12, pct, arcColor));
+
+  const center = element("div", { className: "hero-gauge-center" });
+  const value = element("div", { className: "gauge-value" });
+  if (hasPeak) {
+    value.append(document.createTextNode(String(Math.round(pct))), element("span", { text: "%" }));
+  } else {
+    value.append(element("span", { text: "—" }));
+  }
+  const attention = counts.attention + counts.unavailable;
+  const sub = total
+    ? `${counts.live} live · ${attention} watch`
+    : state.loading
+      ? "syncing"
+      : "no data";
+  append(
+    center,
+    element("div", { className: "gauge-label", text: "Peak load" }),
+    value,
+    element("div", { className: "gauge-sub", text: sub }),
+  );
+  gauge.append(center);
+}
+
+function renderHero() {
+  const title = select("#page-title");
+  const copy = select("#hero-copy");
+  if (!title || !copy) return;
+
+  const counts = snapshotCounts();
+  const total = state.snapshots.length;
+  const attention = counts.attention + counts.unavailable;
+  const peak = fleetPeakUsage();
+  const stormy = attention > 0 || (peak !== null && peak >= 90);
+  const clear = !total || !stormy;
+  const loadIssue = loadIssueMessage();
+  const emptyFailure = !total && !state.loading && Boolean(loadIssue);
+
+  const headline = emptyFailure
+    ? ["No clear reading", "from the providers."]
+    : clear
+      ? ["A clear night", "for your quota."]
+      : ["Weather moving in", "on your quota."];
+  title.replaceChildren(
+    element("span", { text: headline[0] }),
+    element("br"),
+    element("em", { text: headline[1] }),
+  );
+
+  if (!total) {
+    copy.textContent = state.loading
+      ? "Listening for provider usage…"
+      : loadIssue || "Waiting for the first provider sync.";
+  } else {
+    let msg = `${counts.live} of ${total} ${total === 1 ? "account is" : "accounts are"} reporting live`;
+    if (attention) msg += `; ${attention} need${attention === 1 ? "s" : ""} a look`;
+    msg += peak !== null ? `. The heaviest window sits at ${formatPercent(peak)} used.` : ".";
+    copy.textContent = msg;
+    if (loadIssue) copy.textContent += ` Last sync issue: ${loadIssue}`;
+  }
+
+  renderHeroGauge(select("#hero-gauge"));
+}
+
 function renderSummary() {
   const summary = select("#summary");
   if (!summary) return;
@@ -360,6 +488,7 @@ function renderSparkline(points, accountId, rangeHours = 24) {
 
 function renderAccount(snapshot) {
   const card = element("article", { className: `account-card status-${snapshot.status}` });
+  card.style.setProperty("--provider", providerVar(snapshot.provider, snapshot.account_id));
   const header = element("div", { className: "account-card-header" });
   const identity = element("div", { className: "account-identity" });
   const monogram = element("span", {
@@ -397,6 +526,24 @@ function renderAccount(snapshot) {
   append(identity, monogram, identityCopy);
 
   const headerRight = element("div", { className: "account-header-right" });
+
+  const peak = accountPeakUsage(snapshot);
+  if (peak !== null) {
+    const gauge = element("div", {
+      className: "account-gauge",
+      attributes: {
+        role: "img",
+        "aria-label": `Peak usage ${formatPercent(peak)}`,
+        title: `Peak window usage: ${formatPercent(peak)}`,
+      },
+    });
+    gauge.append(ringSvg(62, 6, peak, usageColorVar(peak)));
+    const num = element("div", { className: "account-gauge-num" });
+    num.append(document.createTextNode(String(Math.round(peak))), element("small", { text: "%" }));
+    gauge.append(num);
+    headerRight.append(gauge);
+  }
+
   const status = element("div", { className: "status-stack" });
   const badge = element("span", { className: "status-badge", text: statusLabel(snapshot.status) });
   badge.prepend(element("span", { className: "status-dot", attributes: { "aria-hidden": "true" } }));
@@ -865,6 +1012,7 @@ async function loadTrendsHistory(hours = 24) {
 
 function render() {
   if (state.activeView === "ledger") {
+    renderHero();
     renderSummary();
     renderAccounts();
     renderSetup();
@@ -991,6 +1139,7 @@ function renderDetailedSparklinesGrid() {
 
   accountsToRender.forEach((acc) => {
     const card = element("div", { className: "trends-detail-card" });
+    card.style.setProperty("--provider", providerVar(acc.provider, acc.account_id));
     const header = element("div", { className: "trends-detail-header" });
     const idWrap = element("div", { className: "account-identity" });
     const monogram = element("span", {
