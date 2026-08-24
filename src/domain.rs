@@ -134,7 +134,10 @@ pub struct UsageSnapshot {
 
 impl UsageSnapshot {
     pub fn max_used_percent(&self) -> Option<f64> {
-        self.windows.iter().map(|w| w.used_percent).max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+        self.windows
+            .iter()
+            .map(|w| w.used_percent)
+            .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
     }
 }
 

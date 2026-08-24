@@ -90,7 +90,9 @@ impl HistoryStore {
                 for w in &s.windows {
                     let key = (s.account_id.clone(), w.id.clone());
                     if let Some((prev_pct, prev_time)) = last_records.get(&key) {
-                        if (w.used_percent - *prev_pct).abs() < 0.001 && (ts - *prev_time).num_seconds() < 300 {
+                        if (w.used_percent - *prev_pct).abs() < 0.001
+                            && (ts - *prev_time).num_seconds() < 300
+                        {
                             continue;
                         }
                     }
@@ -172,7 +174,11 @@ impl HistoryStore {
         Ok(points)
     }
 
-    pub fn get_hourly_heatmap(&self, account_id: Option<&str>, days: i64) -> Result<Vec<HourlyUsageDistribution>> {
+    pub fn get_hourly_heatmap(
+        &self,
+        account_id: Option<&str>,
+        days: i64,
+    ) -> Result<Vec<HourlyUsageDistribution>> {
         let cutoff = (Utc::now() - Duration::days(days)).to_rfc3339();
         let conn = self.conn.lock().unwrap();
 
@@ -226,7 +232,11 @@ impl HistoryStore {
     pub fn prune(&self, max_days: i64) -> Result<usize> {
         let cutoff = (Utc::now() - Duration::days(max_days)).to_rfc3339();
         let conn = self.conn.lock().unwrap();
-        let deleted = conn.execute("DELETE FROM usage_history WHERE observed_at < ?", params![cutoff])
+        let deleted = conn
+            .execute(
+                "DELETE FROM usage_history WHERE observed_at < ?",
+                params![cutoff],
+            )
             .context("Failed to prune usage history")?;
         Ok(deleted)
     }

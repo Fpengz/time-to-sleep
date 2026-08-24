@@ -7,15 +7,15 @@ description = "High-performance local usage retrieval for AI coding assistants."
 
 [lib]
 name = "time_to_sleep"
-path = "rust/src/lib.rs"
+path = "src/lib.rs"
 
 [[bin]]
 name = "time-to-sleep"
-path = "rust/src/main.rs"
+path = "src/main.rs"
 
 [[bin]]
 name = "benchmark"
-path = "rust/src/bin/benchmark.rs"
+path = "src/bin/benchmark.rs"
 
 [dependencies]
 tokio = { version = "1.43", features = ["full"] }

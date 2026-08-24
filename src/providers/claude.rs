@@ -7,7 +7,9 @@ use reqwest::Client;
 use serde_json::Value;
 
 use super::UsageProvider;
-use crate::domain::{AccountConfig, AccountStatus, ErrorCode, ProviderName, UsageSnapshot, UsageWindow};
+use crate::domain::{
+    AccountConfig, AccountStatus, ErrorCode, ProviderName, UsageSnapshot, UsageWindow,
+};
 
 const CLAUDE_USAGE_URL: &str = "https://api.anthropic.com/api/organizations/usage";
 
@@ -78,7 +80,14 @@ impl ClaudeProvider {
     fn read_keychain() -> Option<String> {
         let username = std::env::var("USER").ok()?;
         let output = std::process::Command::new("security")
-            .args(["find-generic-password", "-s", "Claude Code-credentials", "-a", &username, "-w"])
+            .args([
+                "find-generic-password",
+                "-s",
+                "Claude Code-credentials",
+                "-a",
+                &username,
+                "-w",
+            ])
             .output()
             .ok()?;
 
@@ -95,7 +104,10 @@ impl ClaudeProvider {
             return None;
         }
         if let Ok(val) = serde_json::from_str::<Value>(raw) {
-            if let Some(tok) = val.pointer("/claudeAiOauth/accessToken").and_then(|v| v.as_str()) {
+            if let Some(tok) = val
+                .pointer("/claudeAiOauth/accessToken")
+                .and_then(|v| v.as_str())
+            {
                 let trimmed = tok.trim().to_string();
                 if !trimmed.is_empty() {
                     return Some(trimmed);
@@ -128,7 +140,8 @@ impl UsageProvider for ClaudeProvider {
             };
         };
 
-        let response = match self.client
+        let response = match self
+            .client
             .get(CLAUDE_USAGE_URL)
             .header("Authorization", format!("Bearer {}", token))
             .header("anthropic-beta", "oauth-2025-04-20")
@@ -211,7 +224,10 @@ impl UsageProvider for ClaudeProvider {
 
         let mut windows = Vec::new();
         if let Some(five_h) = doc.get("five_hour") {
-            let used = five_h.get("used_percent").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let used = five_h
+                .get("used_percent")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
             windows.push(UsageWindow {
                 id: "five_hour".to_string(),
                 used_percent: used,
@@ -221,7 +237,10 @@ impl UsageProvider for ClaudeProvider {
             });
         }
         if let Some(seven_d) = doc.get("seven_day") {
-            let used = seven_d.get("used_percent").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let used = seven_d
+                .get("used_percent")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
             windows.push(UsageWindow {
                 id: "seven_day".to_string(),
                 used_percent: used,

@@ -24,7 +24,7 @@ use crate::history::HistoryStore;
 use crate::services::{AnalyticsService, UsageService};
 
 #[derive(RustEmbed)]
-#[folder = "src/time_to_sleep/static/"]
+#[folder = "static/"]
 struct StaticAssets;
 
 #[derive(Clone)]
@@ -47,7 +47,10 @@ pub async fn usage_handler(
     Query(params): Query<UsageParams>,
 ) -> Json<serde_json::Value> {
     let settings = state.settings.read().await.clone();
-    let snapshots = state.usage_service.collect(&settings, params.force_refresh).await;
+    let snapshots = state
+        .usage_service
+        .collect(&settings, params.force_refresh)
+        .await;
     let analytics_data = state.analytics_service.analyze(&snapshots, Some(&settings));
 
     let _ = state.history_store.record_snapshots(&snapshots);
@@ -69,9 +72,7 @@ pub async fn usage_handler(
     }))
 }
 
-pub async fn analytics_handler(
-    State(state): State<AppState>,
-) -> Json<AnalyticsResponse> {
+pub async fn analytics_handler(State(state): State<AppState>) -> Json<AnalyticsResponse> {
     let settings = state.settings.read().await.clone();
     let snapshots = state.usage_service.collect(&settings, false).await;
     let analytics = state.analytics_service.analyze(&snapshots, Some(&settings));
@@ -130,23 +131,24 @@ pub async fn events_handler(
     let analytics_data = state.analytics_service.analyze(&snapshots, Some(&settings));
 
     let rx = state.broadcaster.subscribe();
-    let broadcast_stream = BroadcastStream::new(rx).filter_map(|res| res.ok()).map(|msg| {
-        Ok(Event::default().data(msg))
-    });
+    let broadcast_stream = BroadcastStream::new(rx)
+        .filter_map(|res| res.ok())
+        .map(|msg| Ok(Event::default().data(msg)));
 
-    let init_usage_event = Event::default().event("usage").data(json!({
-        "generated_at": Utc::now(),
-        "accounts": snapshots,
-    }).to_string());
-
-    let init_analytics_event = Event::default().event("analytics").data(
-        serde_json::to_string(&analytics_data).unwrap_or_default()
+    let init_usage_event = Event::default().event("usage").data(
+        json!({
+            "generated_at": Utc::now(),
+            "accounts": snapshots,
+        })
+        .to_string(),
     );
 
-    let initial_stream = futures::stream::iter(vec![
-        Ok(init_usage_event),
-        Ok(init_analytics_event),
-    ]);
+    let init_analytics_event = Event::default()
+        .event("analytics")
+        .data(serde_json::to_string(&analytics_data).unwrap_or_default());
+
+    let initial_stream =
+        futures::stream::iter(vec![Ok(init_usage_event), Ok(init_analytics_event)]);
 
     let full_stream = initial_stream.chain(broadcast_stream);
 
@@ -170,11 +172,17 @@ pub async fn static_handler(axum::extract::Path(path): axum::extract::Path<Strin
     if let Some(asset) = StaticAssets::get(target) {
         let mime = mime_guess::from_path(target).first_or_octet_stream();
         let mut headers = HeaderMap::new();
-        headers.insert(header::CONTENT_TYPE, HeaderValue::from_str(mime.as_ref()).unwrap());
+        headers.insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_str(mime.as_ref()).unwrap(),
+        );
         (StatusCode::OK, headers, asset.data).into_response()
     } else if let Some(asset) = StaticAssets::get("index.html") {
         let mut headers = HeaderMap::new();
-        headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
+        headers.insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("text/html; charset=utf-8"),
+        );
         (StatusCode::OK, headers, asset.data).into_response()
     } else {
         (StatusCode::NOT_FOUND, "Not Found").into_response()

@@ -11,7 +11,9 @@ use tokio::time::{timeout, Duration};
 
 use super::parsers::parse_codex_rollout;
 use super::UsageProvider;
-use crate::domain::{AccountConfig, AccountStatus, ErrorCode, ProviderName, UsageSnapshot, UsageWindow};
+use crate::domain::{
+    AccountConfig, AccountStatus, ErrorCode, ProviderName, UsageSnapshot, UsageWindow,
+};
 
 pub struct CodexProvider {
     command: String,
@@ -53,7 +55,9 @@ impl CodexProvider {
             "method": "initialize",
             "params": {"clientInfo": {"name": "time-to-sleep", "version": "0.1.0"}}
         });
-        stdin.write_all(format!("{}\n", init_req).as_bytes()).await?;
+        stdin
+            .write_all(format!("{}\n", init_req).as_bytes())
+            .await?;
 
         // 2. Send account/read
         let account_req = json!({
@@ -62,7 +66,9 @@ impl CodexProvider {
             "method": "account/read",
             "params": {}
         });
-        stdin.write_all(format!("{}\n", account_req).as_bytes()).await?;
+        stdin
+            .write_all(format!("{}\n", account_req).as_bytes())
+            .await?;
 
         // 3. Send account/rateLimits/read
         let limits_req = json!({
@@ -71,7 +77,9 @@ impl CodexProvider {
             "method": "account/rateLimits/read",
             "params": {}
         });
-        stdin.write_all(format!("{}\n", limits_req).as_bytes()).await?;
+        stdin
+            .write_all(format!("{}\n", limits_req).as_bytes())
+            .await?;
 
         let mut account_data: Option<Value> = None;
         let mut rate_limits_data: Option<Value> = None;
@@ -82,7 +90,8 @@ impl CodexProvider {
                     if msg.get("id") == Some(&json!(2)) {
                         account_data = msg.get("result").and_then(|r| r.get("account")).cloned();
                     } else if msg.get("id") == Some(&json!(3)) {
-                        rate_limits_data = msg.get("result").and_then(|r| r.get("rateLimits")).cloned();
+                        rate_limits_data =
+                            msg.get("result").and_then(|r| r.get("rateLimits")).cloned();
                     }
                     if account_data.is_some() && rate_limits_data.is_some() {
                         break;
@@ -99,8 +108,14 @@ impl CodexProvider {
         let Some(acc_obj) = account_data else {
             bail!("missing account payload");
         };
-        let observed_email = acc_obj.get("email").and_then(|v| v.as_str()).map(|s| s.to_string());
-        let plan_type = acc_obj.get("planType").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let observed_email = acc_obj
+            .get("email")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let plan_type = acc_obj
+            .get("planType")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
 
         if let Some(ref obs_email) = observed_email {
             if !obs_email.eq_ignore_ascii_case(&account.email) {
@@ -125,9 +140,19 @@ impl CodexProvider {
         if let Some(limits) = rate_limits_data.and_then(|v| v.as_object().cloned()) {
             for (key, val) in limits {
                 if (key == "primary" || key == "secondary") && val.is_object() {
-                    let used = val.get("usedPercent").or_else(|| val.get("used_percent")).and_then(|v| v.as_f64()).unwrap_or(0.0);
-                    let duration = val.get("windowDurationMins").or_else(|| val.get("window_minutes")).and_then(|v| v.as_i64());
-                    let resets_at = val.get("resetsAt").or_else(|| val.get("resets_at")).and_then(|v| super::parsers::parse_timestamp(v, false).ok());
+                    let used = val
+                        .get("usedPercent")
+                        .or_else(|| val.get("used_percent"))
+                        .and_then(|v| v.as_f64())
+                        .unwrap_or(0.0);
+                    let duration = val
+                        .get("windowDurationMins")
+                        .or_else(|| val.get("window_minutes"))
+                        .and_then(|v| v.as_i64());
+                    let resets_at = val
+                        .get("resetsAt")
+                        .or_else(|| val.get("resets_at"))
+                        .and_then(|v| super::parsers::parse_timestamp(v, false).ok());
 
                     windows.push(UsageWindow {
                         id: key,

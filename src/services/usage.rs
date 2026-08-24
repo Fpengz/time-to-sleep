@@ -46,8 +46,16 @@ impl UsageService {
             let acc = acc.clone();
             let cache_lock = self.cache.clone();
             let provider = self.providers.get(&acc.provider).cloned();
-            let ttl = self.ttls.get(&acc.provider).copied().unwrap_or(chrono::Duration::seconds(30));
-            let timeout_dur = self.timeouts.get(&acc.provider).copied().unwrap_or(Duration::from_secs(10));
+            let ttl = self
+                .ttls
+                .get(&acc.provider)
+                .copied()
+                .unwrap_or(chrono::Duration::seconds(30));
+            let timeout_dur = self
+                .timeouts
+                .get(&acc.provider)
+                .copied()
+                .unwrap_or(Duration::from_secs(10));
 
             tasks.push(tokio::spawn(async move {
                 if !force_refresh {
@@ -69,7 +77,11 @@ impl UsageService {
                             observed_email: None,
                             status: AccountStatus::Unavailable,
                             error_code: ErrorCode::Timeout,
-                            message: Some(format!("Provider {} timed out after {}s", acc.provider, timeout_dur.as_secs())),
+                            message: Some(format!(
+                                "Provider {} timed out after {}s",
+                                acc.provider,
+                                timeout_dur.as_secs()
+                            )),
                             source: acc.provider.as_str().to_string(),
                             plan_type: None,
                             observed_at: Some(now),

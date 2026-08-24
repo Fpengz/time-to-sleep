@@ -44,7 +44,11 @@ enum Commands {
     },
     #[command(about = "Output compact status for shell prompt / statusline")]
     Prompt {
-        #[arg(long, default_value = "compact", help = "Format: compact, starship, tmux, json, waybar, sketchybar")]
+        #[arg(
+            long,
+            default_value = "compact",
+            help = "Format: compact, starship, tmux, json, waybar, sketchybar"
+        )]
         format: String,
         #[arg(short, long)]
         port: Option<u16>,
@@ -74,11 +78,17 @@ fn build_services() -> (Arc<UsageService>, Arc<AnalyticsService>, Arc<HistorySto
     let mut providers: HashMap<ProviderName, Arc<dyn UsageProvider>> = HashMap::new();
     providers.insert(ProviderName::Codex, Arc::new(CodexProvider::new()));
     providers.insert(ProviderName::Claude, Arc::new(ClaudeProvider::new()));
-    providers.insert(ProviderName::Antigravity, Arc::new(AntigravityProvider::new()));
+    providers.insert(
+        ProviderName::Antigravity,
+        Arc::new(AntigravityProvider::new()),
+    );
 
     let usage_service = Arc::new(UsageService::new(providers));
     let analytics_service = Arc::new(AnalyticsService::new());
-    let history_store = Arc::new(HistoryStore::new(Some(&HistoryStore::default_path())).unwrap_or_else(|_| HistoryStore::new(None).unwrap()));
+    let history_store = Arc::new(
+        HistoryStore::new(Some(&HistoryStore::default_path()))
+            .unwrap_or_else(|_| HistoryStore::new(None).unwrap()),
+    );
 
     (usage_service, analytics_service, history_store)
 }
@@ -99,7 +109,9 @@ async fn fetch_usage_remote_or_local(port: u16, force_refresh: bool) -> Vec<Usag
         if resp.status().is_success() {
             if let Ok(val) = resp.json::<serde_json::Value>().await {
                 if let Some(accs) = val.get("accounts") {
-                    if let Ok(snapshots) = serde_json::from_value::<Vec<UsageSnapshot>>(accs.clone()) {
+                    if let Ok(snapshots) =
+                        serde_json::from_value::<Vec<UsageSnapshot>>(accs.clone())
+                    {
                         return snapshots;
                     }
                 }
@@ -138,11 +150,17 @@ async fn main() -> Result<()> {
 
             let app = create_router(state);
             let addr = SocketAddr::from(([127, 0, 0, 1], server_port));
-            println!("🚀 time-to-sleep running at http://127.0.0.1:{}", server_port);
+            println!(
+                "🚀 time-to-sleep running at http://127.0.0.1:{}",
+                server_port
+            );
             let listener = tokio::net::TcpListener::bind(addr).await?;
             axum::serve(listener, app).await?;
         }
-        Some(Commands::Status { port: p, force_refresh }) => {
+        Some(Commands::Status {
+            port: p,
+            force_refresh,
+        }) => {
             let target_port = p.unwrap_or(port);
             let snapshots = fetch_usage_remote_or_local(target_port, force_refresh).await;
             print!("{}", format_table(&snapshots));
@@ -168,7 +186,13 @@ async fn main() -> Result<()> {
             } else {
                 println!("Discovered {} new account(s):", discovered.len());
                 for acc in &discovered {
-                    println!("  • {} ({}): {} [{}]", acc.provider.display_name(), acc.id, acc.email, acc.home);
+                    println!(
+                        "  • {} ({}): {} [{}]",
+                        acc.provider.display_name(),
+                        acc.id,
+                        acc.email,
+                        acc.home
+                    );
                 }
 
                 if apply {

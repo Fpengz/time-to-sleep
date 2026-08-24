@@ -13,15 +13,25 @@ pub struct ParsedWindows {
 pub fn parse_timestamp(val: &Value, milliseconds: bool) -> Result<DateTime<Utc>> {
     if let Some(n) = val.as_i64() {
         let secs = if milliseconds { n / 1000 } else { n };
-        let nsecs = if milliseconds { ((n % 1000) * 1_000_000) as u32 } else { 0 };
-        return DateTime::from_timestamp(secs, nsecs)
-            .context("invalid unix timestamp");
+        let nsecs = if milliseconds {
+            ((n % 1000) * 1_000_000) as u32
+        } else {
+            0
+        };
+        return DateTime::from_timestamp(secs, nsecs).context("invalid unix timestamp");
     }
     if let Some(f) = val.as_f64() {
-        let secs = if milliseconds { (f / 1000.0) as i64 } else { f as i64 };
-        let nsecs = if milliseconds { ((f % 1000.0) * 1_000_000.0) as u32 } else { 0 };
-        return DateTime::from_timestamp(secs, nsecs)
-            .context("invalid unix float timestamp");
+        let secs = if milliseconds {
+            (f / 1000.0) as i64
+        } else {
+            f as i64
+        };
+        let nsecs = if milliseconds {
+            ((f % 1000.0) * 1_000_000.0) as u32
+        } else {
+            0
+        };
+        return DateTime::from_timestamp(secs, nsecs).context("invalid unix float timestamp");
     }
     if let Some(s) = val.as_str() {
         if let Ok(dt) = DateTime::parse_from_rfc3339(s) {
@@ -49,16 +59,29 @@ pub fn parse_codex_rollout(lines: &[&str]) -> Result<ParsedWindows> {
             continue;
         };
 
-        let Some(raw_limits) = event.pointer("/payload/rate_limits").and_then(|v| v.as_object()) else {
+        let Some(raw_limits) = event
+            .pointer("/payload/rate_limits")
+            .and_then(|v| v.as_object())
+        else {
             continue;
         };
 
         let mut windows = Vec::new();
         for (key, val) in raw_limits {
             if (key == "primary" || key == "secondary") && val.is_object() {
-                let used = val.get("used_percent").or_else(|| val.get("usedPercent")).and_then(|v| v.as_f64()).unwrap_or(0.0);
-                let duration = val.get("window_minutes").or_else(|| val.get("windowDurationMins")).and_then(|v| v.as_i64());
-                let reset = val.get("resets_at").or_else(|| val.get("resetsAt")).and_then(|v| parse_timestamp(v, false).ok());
+                let used = val
+                    .get("used_percent")
+                    .or_else(|| val.get("usedPercent"))
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
+                let duration = val
+                    .get("window_minutes")
+                    .or_else(|| val.get("windowDurationMins"))
+                    .and_then(|v| v.as_i64());
+                let reset = val
+                    .get("resets_at")
+                    .or_else(|| val.get("resetsAt"))
+                    .and_then(|v| parse_timestamp(v, false).ok());
 
                 windows.push(UsageWindow {
                     id: key.clone(),
@@ -87,12 +110,23 @@ pub fn parse_codex_rollout(lines: &[&str]) -> Result<ParsedWindows> {
 
 pub fn parse_antigravity_quota_summary(document: &Value) -> Result<ParsedWindows> {
     let response = document.get("response").unwrap_or(document);
-    let groups = response.get("groups").and_then(|v| v.as_array()).context("no groups in quota summary")?;
+    let groups = response
+        .get("groups")
+        .and_then(|v| v.as_array())
+        .context("no groups in quota summary")?;
 
     let mut windows = Vec::new();
     for group in groups {
-        let group_name = group.get("displayName").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
-        let group_id = if group_name.contains("gemini") { "gemini" } else { "third_party" };
+        let group_name = group
+            .get("displayName")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_lowercase();
+        let group_id = if group_name.contains("gemini") {
+            "gemini"
+        } else {
+            "third_party"
+        };
 
         if let Some(buckets) = group.get("buckets").and_then(|v| v.as_array()) {
             for bucket in buckets {
@@ -100,18 +134,33 @@ pub fn parse_antigravity_quota_summary(document: &Value) -> Result<ParsedWindows
                     Some(r) if (0.0..=1.0).contains(&r) => r,
                     _ => continue,
                 };
-                let bucket_id = bucket.get("bucketId").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
-                let window_kind = bucket.get("window").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+                let bucket_id = bucket
+                    .get("bucketId")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_lowercase();
+                let window_kind = bucket
+                    .get("window")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_lowercase();
 
-                let (suffix, duration) = if bucket_id.contains("weekly") || window_kind == "weekly" {
+                let (suffix, duration) = if bucket_id.contains("weekly") || window_kind == "weekly"
+                {
                     ("weekly", Some(10080))
-                } else if bucket_id.contains("5h") || window_kind == "5h" || window_kind == "five_hour" || window_kind == "five-hour" {
+                } else if bucket_id.contains("5h")
+                    || window_kind == "5h"
+                    || window_kind == "five_hour"
+                    || window_kind == "five-hour"
+                {
                     ("five_hour", Some(300))
                 } else {
                     (bucket_id.as_str(), None)
                 };
 
-                let resets_at = bucket.get("resetTime").and_then(|v| parse_timestamp(v, false).ok());
+                let resets_at = bucket
+                    .get("resetTime")
+                    .and_then(|v| parse_timestamp(v, false).ok());
 
                 windows.push(UsageWindow {
                     id: format!("{}_{}", group_id, suffix.replace('-', "_")),

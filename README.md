@@ -17,8 +17,6 @@ Features a **compiled native Rust core** with an Axum HTTP/SSE server, embedded 
 
 ## Quick Start
 
-### 1. Run Native Rust Binary
-
 ```bash
 # Build release binary
 cargo build --release
@@ -39,13 +37,6 @@ cargo build --release
 
 # Auto-discover local accounts on disk
 ./target/release/time-to-sleep discover --apply
-```
-
-### 2. Run with Python (Optional)
-
-```bash
-uv sync
-uv run time-to-sleep
 ```
 
 Open the dashboard at <http://127.0.0.1:4141/>.
@@ -92,11 +83,9 @@ curl -N -s http://127.0.0.1:4141/v1/events
 # Run Rust test suite & linter
 cargo test
 cargo clippy -- -D warnings
+cargo fmt --check
 
-# Run Python test suite
-uv run pytest
-
-# Run benchmark comparison suite
+# Run benchmark suite
 cargo run --release --bin benchmark
 ```
 

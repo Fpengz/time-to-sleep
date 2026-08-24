@@ -3,8 +3,8 @@ pub mod claude;
 pub mod codex;
 pub mod parsers;
 
-use async_trait::async_trait;
 use crate::domain::{AccountConfig, UsageSnapshot};
+use async_trait::async_trait;
 
 #[async_trait]
 pub trait UsageProvider: Send + Sync {

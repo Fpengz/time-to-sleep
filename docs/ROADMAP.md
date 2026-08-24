@@ -150,16 +150,16 @@ This document outlines proposed improvements, feature expansions, and architectu
 ## 7. Native Rust Core & Modern UI Redesign ✅
 
 ### 7.1 Full Rust Backend & CLI (`time-to-sleep`) ✅
-- **Status:** Implemented in `rust/` and `Cargo.toml`.
+- **Status:** Implemented in `src/` and `Cargo.toml`.
 - **Features:**
   - Standalone **4.9 MB** Mach-O binary compiled with Axum, Tokio, Rusqlite, Clap, and Ratatui.
   - **0.80 µs** per-invocation prompt formatting latency (18.4x faster than Python).
   - **1.82 ms** SQLite ingestion for 1,000 snapshots (8.5x faster).
   - Idle resident memory dropped to **< 4.9 MB** (7.1x less RAM).
-  - Embedded static web assets directly into the binary via `rust-embed`.
+  - Embedded static web assets directly into the binary via `rust-embed` from `static/`.
 
 ### 7.2 Web Dashboard Visual & Ergonomic Redesign ✅
-- **Status:** Implemented in `src/time_to_sleep/static/styles.css` and `src/time_to_sleep/static/app.js`.
+- **Status:** Implemented in `static/styles.css` and `static/app.js`.
 - **Features:**
   - Clean, high-contrast dark/light design system (Slate / Obsidian / Emerald / Coral).
   - Re-architected window cards with title + duration badge on the left, large bold usage percentage on the right, and rounded animated progress meters.

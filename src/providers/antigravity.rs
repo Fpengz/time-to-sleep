@@ -42,12 +42,23 @@ impl AntigravityProvider {
     }
 
     pub async fn post_probe(&self, server: &LocalServer) -> bool {
-        self.post_grpc_json(server, "GetUnleashData", &json!({})).await.is_ok()
+        self.post_grpc_json(server, "GetUnleashData", &json!({}))
+            .await
+            .is_ok()
     }
 
-    pub async fn post_grpc_json(&self, server: &LocalServer, method: &str, body: &Value) -> Result<Value> {
-        let mut req_builder = self.client
-            .post(format!("http://127.0.0.1:{}/exa.language_server_pb.LanguageServerService/{}", server.port, method))
+    pub async fn post_grpc_json(
+        &self,
+        server: &LocalServer,
+        method: &str,
+        body: &Value,
+    ) -> Result<Value> {
+        let mut req_builder = self
+            .client
+            .post(format!(
+                "http://127.0.0.1:{}/exa.language_server_pb.LanguageServerService/{}",
+                server.port, method
+            ))
             .header("Connect-Protocol-Version", "1")
             .header("Content-Type", "application/json");
 
@@ -61,8 +72,12 @@ impl AntigravityProvider {
             Ok(val)
         } else {
             // Try https fallback
-            let mut req_builder = self.client
-                .post(format!("https://127.0.0.1:{}/exa.language_server_pb.LanguageServerService/{}", server.port, method))
+            let mut req_builder = self
+                .client
+                .post(format!(
+                    "https://127.0.0.1:{}/exa.language_server_pb.LanguageServerService/{}",
+                    server.port, method
+                ))
                 .header("Connect-Protocol-Version", "1")
                 .header("Content-Type", "application/json");
 
@@ -81,9 +96,7 @@ impl AntigravityProvider {
 
     async fn find_server(&self) -> Option<LocalServer> {
         // Fast path: probe cached server
-        let cached_opt = {
-            self.cached_server.lock().unwrap().clone()
-        };
+        let cached_opt = { self.cached_server.lock().unwrap().clone() };
         if let Some(ref s) = cached_opt {
             if self.post_probe(s).await {
                 return Some(s.clone());
@@ -108,8 +121,12 @@ impl AntigravityProvider {
             }
 
             let parts: Vec<&str> = trimmed.split_whitespace().collect();
-            let Some(pid_str) = parts.first() else { continue };
-            let Ok(pid) = pid_str.parse::<u32>() else { continue };
+            let Some(pid_str) = parts.first() else {
+                continue;
+            };
+            let Ok(pid) = pid_str.parse::<u32>() else {
+                continue;
+            };
 
             let csrf_token = parts.iter().find_map(|arg| {
                 if arg.starts_with("--csrf_token=") {
@@ -128,7 +145,11 @@ impl AntigravityProvider {
             if let Some(lsof) = lsof_out {
                 let lsof_text = String::from_utf8_lossy(&lsof.stdout);
                 for lsof_line in lsof_text.lines() {
-                    if let Some(port_str) = lsof_line.split(':').next_back().and_then(|s| s.split_whitespace().next()) {
+                    if let Some(port_str) = lsof_line
+                        .split(':')
+                        .next_back()
+                        .and_then(|s| s.split_whitespace().next())
+                    {
                         if let Ok(port) = port_str.parse::<u16>() {
                             let s = LocalServer {
                                 pid,
@@ -171,13 +192,21 @@ impl UsageProvider for AntigravityProvider {
             };
         };
 
-        let status_res = self.post_grpc_json(&server, "GetUserStatus", &json!({})).await;
+        let status_res = self
+            .post_grpc_json(&server, "GetUserStatus", &json!({}))
+            .await;
         let mut observed_email = None;
         let mut plan_type = None;
 
         if let Ok(status_val) = status_res {
-            observed_email = status_val.pointer("/userStatus/email").and_then(|v| v.as_str()).map(|s| s.to_string());
-            plan_type = status_val.pointer("/userStatus/planType").and_then(|v| v.as_str()).map(|s| s.to_string());
+            observed_email = status_val
+                .pointer("/userStatus/email")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            plan_type = status_val
+                .pointer("/userStatus/planType")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
         }
 
         if let Some(ref obs_email) = observed_email {
@@ -199,7 +228,10 @@ impl UsageProvider for AntigravityProvider {
             }
         }
 
-        let quota_doc = match self.post_grpc_json(&server, "GetQuotaSummary", &json!({})).await {
+        let quota_doc = match self
+            .post_grpc_json(&server, "GetQuotaSummary", &json!({}))
+            .await
+        {
             Ok(doc) => doc,
             Err(e) => {
                 return UsageSnapshot {

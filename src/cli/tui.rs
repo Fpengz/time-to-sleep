@@ -4,7 +4,9 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode};
 use crossterm::execute;
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
+use crossterm::terminal::{
+    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
+};
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::style::{Color, Modifier, Style};
@@ -30,7 +32,9 @@ pub async fn run_tui(port: u16) -> Result<()> {
             if let Ok(resp) = client.get(&url).send().await {
                 if let Ok(val) = resp.json::<serde_json::Value>().await {
                     if let Some(accs) = val.get("accounts") {
-                        if let Ok(parsed) = serde_json::from_value::<Vec<UsageSnapshot>>(accs.clone()) {
+                        if let Ok(parsed) =
+                            serde_json::from_value::<Vec<UsageSnapshot>>(accs.clone())
+                        {
                             snapshots = parsed;
                         }
                     }
@@ -51,26 +55,34 @@ pub async fn run_tui(port: u16) -> Result<()> {
                 .split(f.area());
 
             let title = Paragraph::new(" TIME-TO-SLEEP — Live Quota & Usage Monitor")
-                .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+                .style(
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                )
                 .block(Block::default().borders(Borders::ALL));
             f.render_widget(title, chunks[0]);
 
-            let rows: Vec<Row> = snapshots.iter().map(|s| {
-                let max_pct = s.max_used_percent().unwrap_or(0.0);
-                let color = if max_pct >= 90.0 {
-                    Color::Red
-                } else if max_pct >= 75.0 {
-                    Color::Yellow
-                } else {
-                    Color::Green
-                };
-                Row::new(vec![
-                    s.account_id.clone(),
-                    s.provider.display_name().to_string(),
-                    s.status.as_str().to_string(),
-                    format!("{:.1}%", max_pct),
-                ]).style(Style::default().fg(color))
-            }).collect();
+            let rows: Vec<Row> = snapshots
+                .iter()
+                .map(|s| {
+                    let max_pct = s.max_used_percent().unwrap_or(0.0);
+                    let color = if max_pct >= 90.0 {
+                        Color::Red
+                    } else if max_pct >= 75.0 {
+                        Color::Yellow
+                    } else {
+                        Color::Green
+                    };
+                    Row::new(vec![
+                        s.account_id.clone(),
+                        s.provider.display_name().to_string(),
+                        s.status.as_str().to_string(),
+                        format!("{:.1}%", max_pct),
+                    ])
+                    .style(Style::default().fg(color))
+                })
+                .collect();
 
             let table = Table::new(
                 rows,
@@ -79,9 +91,12 @@ pub async fn run_tui(port: u16) -> Result<()> {
                     Constraint::Percentage(25),
                     Constraint::Percentage(25),
                     Constraint::Percentage(20),
-                ]
+                ],
             )
-            .header(Row::new(vec!["Account", "Provider", "Status", "Usage"]).style(Style::default().add_modifier(Modifier::BOLD)))
+            .header(
+                Row::new(vec!["Account", "Provider", "Status", "Usage"])
+                    .style(Style::default().add_modifier(Modifier::BOLD)),
+            )
             .block(Block::default().borders(Borders::ALL).title(" Accounts "));
             f.render_widget(table, chunks[1]);
 

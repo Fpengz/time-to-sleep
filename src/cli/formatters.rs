@@ -9,14 +9,16 @@ pub fn format_prompt(snapshots: &[UsageSnapshot], format_type: &str) -> String {
                 "accounts": [],
                 "max_used_percent": 0.0,
                 "needs_attention": false
-            }).to_string();
+            })
+            .to_string();
         } else if format_type == "waybar" {
             return json!({
                 "text": "No accounts",
                 "tooltip": "No accounts configured",
                 "class": "empty",
                 "percentage": 0
-            }).to_string();
+            })
+            .to_string();
         }
         return String::new();
     }
@@ -67,7 +69,15 @@ pub fn format_prompt(snapshots: &[UsageSnapshot], format_type: &str) -> String {
             continue;
         }
 
-        let max_w = s.windows.iter().max_by(|a, b| a.used_percent.partial_cmp(&b.used_percent).unwrap_or(std::cmp::Ordering::Equal)).unwrap();
+        let max_w = s
+            .windows
+            .iter()
+            .max_by(|a, b| {
+                a.used_percent
+                    .partial_cmp(&b.used_percent)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .unwrap();
         let pct = max_w.used_percent;
         if pct > max_pct {
             max_pct = pct;
@@ -94,7 +104,8 @@ pub fn format_prompt(snapshots: &[UsageSnapshot], format_type: &str) -> String {
             "max_used_percent": max_pct,
             "needs_attention": needs_attention,
             "summary": joined
-        })).unwrap_or_default();
+        }))
+        .unwrap_or_default();
     }
 
     if format_type == "waybar" {
@@ -108,14 +119,21 @@ pub fn format_prompt(snapshots: &[UsageSnapshot], format_type: &str) -> String {
         let mut tooltip_lines = Vec::new();
         for s in snapshots {
             let pct = s.max_used_percent().unwrap_or(0.0);
-            tooltip_lines.push(format!("{} ({}): {:.1}% [{}]", s.provider.display_name(), s.account_id, pct, s.status.as_str()));
+            tooltip_lines.push(format!(
+                "{} ({}): {:.1}% [{}]",
+                s.provider.display_name(),
+                s.account_id,
+                pct,
+                s.status.as_str()
+            ));
         }
         return json!({
             "text": joined,
             "tooltip": tooltip_lines.join("\n"),
             "class": status_class,
             "percentage": max_pct.round() as i64
-        }).to_string();
+        })
+        .to_string();
     }
 
     if format_type == "sketchybar" {
@@ -134,13 +152,20 @@ pub fn format_prompt(snapshots: &[UsageSnapshot], format_type: &str) -> String {
 
 pub fn format_table(snapshots: &[UsageSnapshot]) -> String {
     if snapshots.is_empty() {
-        return "No accounts configured. Run `time-to-sleep discover` to get started.\n".to_string();
+        return "No accounts configured. Run `time-to-sleep discover` to get started.\n"
+            .to_string();
     }
 
     let mut out = String::new();
-    out.push_str("╭───────────────────┬──────────────┬──────────────┬──────────────┬────────────────╮\n");
-    out.push_str("│ Account           │ Provider     │ Status       │ Max Usage    │ Meter          │\n");
-    out.push_str("├───────────────────┼──────────────┼──────────────┼──────────────┼────────────────┤\n");
+    out.push_str(
+        "╭───────────────────┬──────────────┬──────────────┬──────────────┬────────────────╮\n",
+    );
+    out.push_str(
+        "│ Account           │ Provider     │ Status       │ Max Usage    │ Meter          │\n",
+    );
+    out.push_str(
+        "├───────────────────┼──────────────┼──────────────┼──────────────┼────────────────┤\n",
+    );
 
     for s in snapshots {
         let acc_name = if s.account_id.len() > 17 {
@@ -161,7 +186,9 @@ pub fn format_table(snapshots: &[UsageSnapshot]) -> String {
         ));
     }
 
-    out.push_str("╰───────────────────┴──────────────┴──────────────┴──────────────┴────────────────╯\n");
+    out.push_str(
+        "╰───────────────────┴──────────────┴──────────────┴──────────────┴────────────────╯\n",
+    );
     out
 }
 

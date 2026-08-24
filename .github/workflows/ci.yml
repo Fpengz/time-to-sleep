@@ -7,42 +7,42 @@ on:
 
 jobs:
   test:
-    name: Lint & Test
+    name: Rust Lint & Test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v3
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
         with:
-          version: "latest"
-          enable-cache: true
+          components: rustfmt, clippy
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install dependencies
-        run: uv sync
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
 
       - name: Check formatting
-        run: uv run ruff format --check .
+        run: cargo fmt --check
 
-      - name: Lint
-        run: uv run ruff check .
+      - name: Clippy Linter
+        run: cargo clippy -- -D warnings
 
-      - name: Type check
-        run: uv run ty check
-
-      - name: Run Pytest
-        run: uv run pytest
+      - name: Run Test Suite
+        run: cargo test --verbose
 
   build-macos:
     name: Build macOS Menu Bar App
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build Rust Release Binary
+        run: cargo build --release
 
       - name: Build macOS App
         working-directory: macOS
@@ -57,3 +57,4 @@ jobs:
         with:
           name: Time-to-Sleep-macOS-DMG
           path: macOS/Time-to-Sleep.dmg
+

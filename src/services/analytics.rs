@@ -3,9 +3,7 @@ use std::sync::Mutex;
 
 use chrono::{DateTime, Utc};
 
-use crate::domain::{
-    AccountAnalytics, AccountStatus, AnalyticsResponse, Settings, UsageSnapshot,
-};
+use crate::domain::{AccountAnalytics, AccountStatus, AnalyticsResponse, Settings, UsageSnapshot};
 
 type AccountHistoryMap = HashMap<String, Vec<(DateTime<Utc>, f64)>>;
 
@@ -54,7 +52,11 @@ impl AnalyticsService {
         }
     }
 
-    pub fn analyze(&self, snapshots: &[UsageSnapshot], settings: Option<&Settings>) -> AnalyticsResponse {
+    pub fn analyze(
+        &self,
+        snapshots: &[UsageSnapshot],
+        settings: Option<&Settings>,
+    ) -> AnalyticsResponse {
         for s in snapshots {
             self.record_snapshot(s);
         }
@@ -104,7 +106,9 @@ impl AnalyticsService {
                             burn_rate = Some(rounded_rate);
                             let remaining = 100.0 - current_pct;
                             if remaining > 0.0 {
-                                minutes_to_exhaust = Some((((remaining / rounded_rate) * 60.0).round() as i64).max(1));
+                                minutes_to_exhaust = Some(
+                                    (((remaining / rounded_rate) * 60.0).round() as i64).max(1),
+                                );
                             }
                         }
                     }
@@ -126,11 +130,22 @@ impl AnalyticsService {
         for item in &evaluated {
             if item.snapshot.status == AccountStatus::Live {
                 if item.current_pct < 50.0 {
-                    healthy_alternatives.push((item.snapshot.account_id.as_str(), item.snapshot.provider, item.current_pct));
+                    healthy_alternatives.push((
+                        item.snapshot.account_id.as_str(),
+                        item.snapshot.provider,
+                        item.current_pct,
+                    ));
                 }
-                let threshold = thresholds_map.get(item.snapshot.account_id.as_str()).copied().unwrap_or(80.0);
+                let threshold = thresholds_map
+                    .get(item.snapshot.account_id.as_str())
+                    .copied()
+                    .unwrap_or(80.0);
                 if item.current_pct >= threshold {
-                    high_usage_accounts.push((item.snapshot.account_id.as_str(), item.snapshot.provider, item.current_pct));
+                    high_usage_accounts.push((
+                        item.snapshot.account_id.as_str(),
+                        item.snapshot.provider,
+                        item.current_pct,
+                    ));
                 }
             }
         }
@@ -150,7 +165,10 @@ impl AnalyticsService {
                     prov_name, acc_id, curr_pct, alt_names
                 ));
             } else {
-                suggestions.push(format!("{} ({}) is near limit ({:.1}%).", prov_name, acc_id, curr_pct));
+                suggestions.push(format!(
+                    "{} ({}) is near limit ({:.1}%).",
+                    prov_name, acc_id, curr_pct
+                ));
             }
         }
 
@@ -174,7 +192,11 @@ impl AnalyticsService {
             .into_iter()
             .map(|item| {
                 let is_rec = recommended_id == Some(item.snapshot.account_id.as_str());
-                let reason = if is_rec { Some("Lowest active usage".to_string()) } else { None };
+                let reason = if is_rec {
+                    Some("Lowest active usage".to_string())
+                } else {
+                    None
+                };
                 AccountAnalytics {
                     account_id: item.snapshot.account_id.clone(),
                     provider: item.snapshot.provider,

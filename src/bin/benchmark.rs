@@ -26,10 +26,25 @@ impl UsageProvider for FakeProvider {
 fn create_dummy_snapshots(count: usize) -> Vec<UsageSnapshot> {
     let now = Utc::now();
     let configs: Vec<(&str, ProviderName, &str, f64)> = vec![
-        ("codex-primary", ProviderName::Codex, "wzf5350@gmail.com", 63.5),
-        ("codex-secondary", ProviderName::Codex, "wzf0513@gmail.com", 12.0),
+        (
+            "codex-primary",
+            ProviderName::Codex,
+            "wzf5350@gmail.com",
+            63.5,
+        ),
+        (
+            "codex-secondary",
+            ProviderName::Codex,
+            "wzf0513@gmail.com",
+            12.0,
+        ),
         ("claude", ProviderName::Claude, "wzf5350@gmail.com", 82.0),
-        ("antigravity", ProviderName::Antigravity, "wzf5350@gmail.com", 5.0),
+        (
+            "antigravity",
+            ProviderName::Antigravity,
+            "wzf5350@gmail.com",
+            5.0,
+        ),
     ];
 
     configs
@@ -118,9 +133,20 @@ async fn main() {
     let elapsed_hist = t0_hist.elapsed();
 
     println!("\n[1] SQLite Storage Engine & History");
-    println!("  • Ingest 1k Records                      : {:.2} ms", elapsed_ingest.as_secs_f64() * 1000.0);
-    println!("  • Heatmap SQL Aggregation (100x)         : {:.2} ms ({:.3} ms/query)", elapsed_heat.as_secs_f64() * 1000.0, (elapsed_heat.as_secs_f64() * 1000.0) / 100.0);
-    println!("  • 24h History Query (100x)               : {:.2} ms ({:.3} ms/query)", elapsed_hist.as_secs_f64() * 1000.0, (elapsed_hist.as_secs_f64() * 1000.0) / 100.0);
+    println!(
+        "  • Ingest 1k Records                      : {:.2} ms",
+        elapsed_ingest.as_secs_f64() * 1000.0
+    );
+    println!(
+        "  • Heatmap SQL Aggregation (100x)         : {:.2} ms ({:.3} ms/query)",
+        elapsed_heat.as_secs_f64() * 1000.0,
+        (elapsed_heat.as_secs_f64() * 1000.0) / 100.0
+    );
+    println!(
+        "  • 24h History Query (100x)               : {:.2} ms ({:.3} ms/query)",
+        elapsed_hist.as_secs_f64() * 1000.0,
+        (elapsed_hist.as_secs_f64() * 1000.0) / 100.0
+    );
 
     // [2] Analytics Service
     let analytics = AnalyticsService::new();
@@ -146,7 +172,11 @@ async fn main() {
     let elapsed_analytics = t0_analytics.elapsed();
 
     println!("\n[2] Analytics & Routing Engine");
-    println!("  • Analytics & Routing (1k iterations)    : {:.2} ms ({:.3} ms/eval)", elapsed_analytics.as_secs_f64() * 1000.0, (elapsed_analytics.as_secs_f64() * 1000.0) / 1000.0);
+    println!(
+        "  • Analytics & Routing (1k iterations)    : {:.2} ms ({:.3} ms/eval)",
+        elapsed_analytics.as_secs_f64() * 1000.0,
+        (elapsed_analytics.as_secs_f64() * 1000.0) / 1000.0
+    );
 
     // [3] CLI Prompt & Formatters
     let t0_prompt = Instant::now();
@@ -162,13 +192,26 @@ async fn main() {
     let elapsed_json = t0_json.elapsed();
 
     println!("\n[3] Formatter & CLI Statusline");
-    println!("  • Compact Prompt Format (10k iterations) : {:.2} ms ({:.2} µs/call)", elapsed_prompt.as_secs_f64() * 1000.0, (elapsed_prompt.as_secs_f64() * 1_000_000.0) / 10000.0);
-    println!("  • JSON Prompt Format (10k iterations)    : {:.2} ms ({:.2} µs/call)", elapsed_json.as_secs_f64() * 1000.0, (elapsed_json.as_secs_f64() * 1_000_000.0) / 10000.0);
+    println!(
+        "  • Compact Prompt Format (10k iterations) : {:.2} ms ({:.2} µs/call)",
+        elapsed_prompt.as_secs_f64() * 1000.0,
+        (elapsed_prompt.as_secs_f64() * 1_000_000.0) / 10000.0
+    );
+    println!(
+        "  • JSON Prompt Format (10k iterations)    : {:.2} ms ({:.2} µs/call)",
+        elapsed_json.as_secs_f64() * 1000.0,
+        (elapsed_json.as_secs_f64() * 1_000_000.0) / 10000.0
+    );
 
     // [4] Usage Retrieval & Cache Layer
     let mut providers: HashMap<ProviderName, Arc<dyn UsageProvider>> = HashMap::new();
     for s in &snapshots {
-        providers.insert(s.provider, Arc::new(FakeProvider { snapshot: s.clone() }));
+        providers.insert(
+            s.provider,
+            Arc::new(FakeProvider {
+                snapshot: s.clone(),
+            }),
+        );
     }
     let usage_service = UsageService::new(providers);
     let _ = usage_service.collect(&settings, true).await;
@@ -180,6 +223,10 @@ async fn main() {
     let elapsed_cache = t0_cache.elapsed();
 
     println!("\n[4] Usage Retrieval & Cache Layer");
-    println!("  • UsageService Warm Cache Hit (1k calls) : {:.2} ms ({:.3} ms/collect)", elapsed_cache.as_secs_f64() * 1000.0, (elapsed_cache.as_secs_f64() * 1000.0) / 1000.0);
+    println!(
+        "  • UsageService Warm Cache Hit (1k calls) : {:.2} ms ({:.3} ms/collect)",
+        elapsed_cache.as_secs_f64() * 1000.0,
+        (elapsed_cache.as_secs_f64() * 1000.0) / 1000.0
+    );
     println!("══════════════════════════════════════════════════════════════════════\n");
 }
