@@ -1,11 +1,12 @@
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{bail, Result};
 use async_trait::async_trait;
 use chrono::Utc;
 use reqwest::Client;
 use serde_json::{json, Value};
+use tokio::process::Command;
 
 use super::parsers::parse_antigravity_quota_summary;
 use super::UsageProvider;
@@ -18,9 +19,12 @@ pub struct LocalServer {
     pub csrf_token: Option<String>,
 }
 
+const NOT_FOUND_RECHECK_INTERVAL: Duration = Duration::from_secs(120);
+
 pub struct AntigravityProvider {
     client: Client,
     cached_server: Mutex<Option<LocalServer>>,
+    last_not_found: Mutex<Option<Instant>>,
 }
 
 impl Default for AntigravityProvider {
@@ -38,6 +42,7 @@ impl AntigravityProvider {
                 .build()
                 .unwrap_or_default(),
             cached_server: Mutex::new(None),
+            last_not_found: Mutex::new(None),
         }
     }
 
@@ -107,10 +112,33 @@ impl AntigravityProvider {
             *cached = None;
         }
 
-        // Search processes via ps
-        let output = std::process::Command::new("ps")
+        // The language server is very often just not running (Antigravity isn't the
+        // user's active tool). Once we've confirmed that, skip the ps/lsof scan for a
+        // while instead of re-scanning every poll.
+        {
+            let last_not_found = *self.last_not_found.lock().unwrap();
+            if let Some(seen_at) = last_not_found {
+                if seen_at.elapsed() < NOT_FOUND_RECHECK_INTERVAL {
+                    return None;
+                }
+            }
+        }
+
+        if let Some(server) = self.scan_for_server().await {
+            let mut cached = self.cached_server.lock().unwrap();
+            *cached = Some(server.clone());
+            return Some(server);
+        }
+
+        *self.last_not_found.lock().unwrap() = Some(Instant::now());
+        None
+    }
+
+    async fn scan_for_server(&self) -> Option<LocalServer> {
+        let output = Command::new("ps")
             .args(["-ax", "-o", "pid=,command="])
             .output()
+            .await
             .ok()?;
 
         let ps_out = String::from_utf8_lossy(&output.stdout);
@@ -137,9 +165,10 @@ impl AntigravityProvider {
             });
 
             // Find listening ports via lsof
-            let lsof_out = std::process::Command::new("lsof")
+            let lsof_out = Command::new("lsof")
                 .args(["-nP", "-a", "-p", &pid.to_string(), "-iTCP", "-sTCP:LISTEN"])
                 .output()
+                .await
                 .ok();
 
             if let Some(lsof) = lsof_out {
@@ -157,8 +186,6 @@ impl AntigravityProvider {
                                 csrf_token: csrf_token.clone(),
                             };
                             if self.post_probe(&s).await {
-                                let mut cached = self.cached_server.lock().unwrap();
-                                *cached = Some(s.clone());
                                 return Some(s);
                             }
                         }

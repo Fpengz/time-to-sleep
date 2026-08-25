@@ -35,7 +35,7 @@ impl ClaudeProvider {
         }
     }
 
-    pub fn get_token(&self, home: &str) -> Option<String> {
+    pub async fn get_token(&self, home: &str) -> Option<String> {
         if let Ok(env_tok) = std::env::var("CLAUDE_CODE_OAUTH_TOKEN") {
             let trimmed = env_tok.trim().to_string();
             if !trimmed.is_empty() {
@@ -51,7 +51,7 @@ impl ClaudeProvider {
         }
 
         // Try reading from keychain on macOS
-        if let Some(token) = Self::read_keychain() {
+        if let Some(token) = Self::read_keychain().await {
             let mut cached = self.cached_token.lock().unwrap();
             *cached = Some(token.clone());
             return Some(token);
@@ -77,9 +77,9 @@ impl ClaudeProvider {
         *cached = None;
     }
 
-    fn read_keychain() -> Option<String> {
+    async fn read_keychain() -> Option<String> {
         let username = std::env::var("USER").ok()?;
-        let output = std::process::Command::new("security")
+        let output = tokio::process::Command::new("security")
             .args([
                 "find-generic-password",
                 "-s",
@@ -89,6 +89,7 @@ impl ClaudeProvider {
                 "-w",
             ])
             .output()
+            .await
             .ok()?;
 
         if output.status.success() {
@@ -123,7 +124,7 @@ impl UsageProvider for ClaudeProvider {
     async fn fetch(&self, account: &AccountConfig) -> UsageSnapshot {
         let retrieved_at = Utc::now();
         let expanded_home = account.expanded_home();
-        let Some(token) = self.get_token(&expanded_home) else {
+        let Some(token) = self.get_token(&expanded_home).await else {
             return UsageSnapshot {
                 account_id: account.id.clone(),
                 provider: ProviderName::Claude,
