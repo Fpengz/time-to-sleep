@@ -190,6 +190,15 @@ function formatWindow(id) {
   return id.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+// A handful of window ids share a formatWindow() label across different periods
+// (e.g. gemini_weekly and gemini_five_hour both read "Gemini"), so callers that
+// show multiple windows side by side need a period suffix to tell them apart.
+function formatWindowPeriod(id) {
+  if (id.endsWith("_five_hour")) return " · 5-Hour";
+  if (id.endsWith("_weekly")) return " · Weekly";
+  return "";
+}
+
 function getWindowBadge(window) {
   if (window.window_minutes) {
     if (window.window_minutes >= 10000) return "Monthly";
@@ -511,6 +520,63 @@ function renderSparkline(points, accountId, rangeHours = 24) {
   return container;
 }
 
+function renderCardMenu(snapshot, isCodex) {
+  const wrap = element("div", { className: "card-menu" });
+  const trigger = element("button", {
+    className: "card-menu-trigger",
+    text: "⋮",
+    attributes: { type: "button", "aria-label": "More actions", "aria-haspopup": "true" },
+  });
+  const popover = element("div", { className: "card-menu-popover" });
+
+  const closeMenu = () => wrap.classList.remove("open");
+
+  if (!isCodex && snapshot.status !== "live") {
+    const retryItem = element("button", {
+      className: "card-menu-item",
+      text: "Retry usage",
+      attributes: { type: "button" },
+    });
+    retryItem.addEventListener("click", () => {
+      closeMenu();
+      void refresh(true);
+    });
+    popover.append(retryItem);
+  }
+
+  const deleteItem = element("button", {
+    className: "card-menu-item card-menu-item-danger",
+    text: "Delete account",
+    attributes: { type: "button" },
+  });
+  deleteItem.addEventListener("click", async () => {
+    closeMenu();
+    const label = snapshot.configured_email || snapshot.account_id;
+    if (!window.confirm(`Remove ${label} from Time-to-Sleep? This only stops tracking it here.`)) return;
+    try {
+      const res = await fetch(`/v1/accounts/config/${snapshot.account_id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || "Failed to delete account");
+      }
+      await refresh(true);
+    } catch (err) {
+      alert("Error: " + err.message);
+    }
+  });
+  popover.append(deleteItem);
+
+  trigger.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const willOpen = !wrap.classList.contains("open");
+    document.querySelectorAll(".card-menu.open").forEach((el) => el.classList.remove("open"));
+    if (willOpen) wrap.classList.add("open");
+  });
+
+  append(wrap, trigger, popover);
+  return wrap;
+}
+
 function renderAccount(snapshot) {
   const card = element("article", { className: `account-card status-${snapshot.status}` });
   card.style.setProperty("--provider", providerVar(snapshot.provider, snapshot.account_id));
@@ -578,71 +644,19 @@ function renderAccount(snapshot) {
   }
 
   const cardActions = element("div", { className: "card-actions" });
-  if (snapshot.status !== "live") {
-    const isCodex = snapshot.provider === "codex";
+  const isCodex = snapshot.provider === "codex";
+  if (isCodex && snapshot.status !== "live") {
+    // Codex's broken-account fix is a login flow, not a generic retry — keep it
+    // as a visible primary action rather than burying it in the overflow menu.
     const action = element("button", {
       className: "button button-action button-sm",
-      text: isCodex
-        ? snapshot.status === "unavailable"
-          ? "Set up account"
-          : "Retry login"
-        : "Retry usage",
+      text: snapshot.status === "unavailable" ? "Set up account" : "Retry login",
       attributes: { type: "button" },
     });
-    action.addEventListener("click", () => {
-      if (isCodex) openSetup(snapshot.account_id);
-      else void refresh(true);
-    });
+    action.addEventListener("click", () => openSetup(snapshot.account_id));
     cardActions.append(action);
   }
-
-  const deleteContainer = element("div", { className: "delete-container" });
-  const deleteBtn = element("button", {
-    className: "button button-secondary button-sm delete-btn",
-    text: "Delete",
-    attributes: { type: "button", title: "Remove account configuration" },
-  });
-
-  deleteBtn.addEventListener("click", () => {
-    deleteContainer.replaceChildren();
-    const confirmGroup = element("div", { className: "delete-confirm-group" });
-    const prompt = element("span", { className: "delete-prompt", text: "Delete?" });
-    const confirmBtn = element("button", {
-      className: "button-danger-confirm",
-      text: "Confirm",
-      attributes: { type: "button" },
-    });
-    const cancelBtn = element("button", {
-      className: "button-cancel-confirm",
-      text: "Cancel",
-      attributes: { type: "button" },
-    });
-
-    confirmBtn.addEventListener("click", async () => {
-      try {
-        confirmBtn.disabled = true;
-        confirmBtn.textContent = "…";
-        const res = await fetch(`/v1/accounts/config/${snapshot.account_id}`, { method: "DELETE" });
-        if (!res.ok) {
-          const err = await res.json();
-          throw new Error(err.detail || "Failed to delete account");
-        }
-        await refresh(true);
-      } catch (err) {
-        alert("Error: " + err.message);
-      }
-    });
-
-    cancelBtn.addEventListener("click", () => {
-      deleteContainer.replaceChildren(deleteBtn);
-    });
-
-    append(confirmGroup, prompt, confirmBtn, cancelBtn);
-    deleteContainer.append(confirmGroup);
-  });
-
-  deleteContainer.append(deleteBtn);
-  cardActions.append(deleteContainer);
+  cardActions.append(renderCardMenu(snapshot, isCodex));
   append(headerRight, status, cardActions);
 
   append(header, identity, headerRight);
@@ -1234,12 +1248,11 @@ function renderDetailedSparklinesGrid() {
       const deltaVal = accPoints.length >= 2 ? currentVal - accPoints[0].used_percent : 0;
 
       if (windowIds.length > 1) {
+        const winLabel = formatWindow(winId);
+        const suffix = /window$/i.test(winLabel) ? "" : " Window";
         const winTitle = element("div", {
           className: "detail-window-title",
-          text: `${formatWindow(winId)} Window`,
-          attributes: {
-            style: "font-size: 11px; font-weight: 700; color: var(--muted); margin-top: 6px; text-transform: uppercase; letter-spacing: 0.05em;",
-          },
+          text: `${winLabel}${formatWindowPeriod(winId)}${suffix}`,
         });
         card.append(winTitle);
       }
@@ -1713,6 +1726,10 @@ function setupNavigation() {
     }
   });
 }
+
+document.addEventListener("click", () => {
+  document.querySelectorAll(".card-menu.open").forEach((el) => el.classList.remove("open"));
+});
 
 document.addEventListener("DOMContentLoaded", () => {
   initializeTheme();

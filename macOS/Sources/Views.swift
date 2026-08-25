@@ -16,7 +16,8 @@ extension Color {
 }
 
 enum Palette {
-    static let accent = Color(hex: 0x8FB02E)
+    // Matches the web dashboard's --accent so the two surfaces read as one product.
+    static let accent = Color(hex: 0x38BDF8)
     static let codex = Color(hex: 0x38AECB)
     static let codexSecondary = Color(hex: 0x7B78E0)
     static let claude = Color(hex: 0xE08A45)

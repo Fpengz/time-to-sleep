@@ -925,6 +925,56 @@ h1, h2, h3, p { margin-top: 0; }
   filter: drop-shadow(0 2px 4px color-mix(in srgb, var(--provider) 35%, transparent));
 }
 
+/* Per-account trend detail cards ("Individual Sparkline Observatories") */
+.trends-detail-card {
+  --provider: var(--accent);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: 20px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: var(--shadow-md);
+  margin-bottom: 20px;
+}
+.trends-detail-header { display: flex; align-items: center; }
+.detail-window-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  margin-top: 6px;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+.detail-stats-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+.detail-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.detail-stat-lbl {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--faint);
+}
+.detail-stat-val {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+}
+.full-sparkline-wrap { margin-top: 4px; }
+.chart-svg-interactive { width: 100%; height: auto; display: block; }
+.chart-gridline { stroke: var(--line); stroke-width: 1; }
+.chart-axis-text { fill: var(--faint); font-size: 9px; font-family: var(--mono); }
+
 /* ============================================================
    ALERTS, MODALS, STATE & MANAGE ACCOUNTS
    ============================================================ */
@@ -952,37 +1002,57 @@ h1, h2, h3, p { margin-top: 0; }
   line-height: 1.45;
 }
 
-/* Delete confirmation */
-.delete-container { display: inline-flex; align-items: center; }
-.delete-confirm-group {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 6px;
-  background: var(--surface-2);
-  border: 1px solid var(--danger);
-  border-radius: var(--r-sm);
-}
-.delete-prompt { font-size: 11px; font-weight: 700; color: var(--danger); }
-.button-danger-confirm {
-  background: var(--danger);
-  color: #fff;
-  border: none;
-  font-size: 11px;
-  padding: 4px 8px;
-  cursor: pointer;
-  border-radius: 4px;
-  font-weight: 700;
-}
-.button-cancel-confirm {
-  background: transparent;
-  color: var(--muted);
+/* Per-card overflow menu (retry / delete) */
+.card-menu { position: relative; }
+.card-menu-trigger {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
   border: 1px solid var(--line);
-  font-size: 11px;
-  padding: 4px 8px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1;
   cursor: pointer;
-  border-radius: 4px;
+  transition: all .16s cubic-bezier(0.16, 1, 0.3, 1);
 }
+.card-menu-trigger:hover {
+  color: var(--text-strong);
+  border-color: var(--line-strong);
+}
+.card-menu-popover {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 160px;
+  padding: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  box-shadow: var(--shadow-lg);
+  z-index: 20;
+}
+.card-menu.open .card-menu-popover { display: flex; flex-direction: column; gap: 2px; }
+.card-menu-item {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.card-menu-item:hover { background: var(--surface-3); }
+.card-menu-item-danger { color: var(--danger); }
+.card-menu-item-danger:hover { background: color-mix(in srgb, var(--danger) 12%, transparent); }
 
 /* Smart advice */
 .smart-advice {
