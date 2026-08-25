@@ -107,6 +107,7 @@ impl LoginService {
         let mut child = Command::new(&self.command)
             .arg("app-server")
             .env("CODEX_HOME", &expanded_home)
+            .env("PATH", crate::providers::codex::extended_path_env())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())

@@ -15,6 +15,38 @@ use crate::domain::{
     AccountConfig, AccountStatus, ErrorCode, ProviderName, UsageSnapshot, UsageWindow,
 };
 
+/// GUI-launched processes (Dock, Login Items, `open -a`) get a bare
+/// `/usr/bin:/bin:/usr/sbin:/sbin` PATH with none of the locations a
+/// Node-installed `codex` CLI typically lives in, so a plain
+/// `Command::new("codex")` fails with ENOENT outside a terminal. Build an
+/// explicit PATH covering common install locations (including every nvm
+/// node version, since the active one isn't known ahead of time) so the
+/// subprocess spawn works the same regardless of how the app was launched.
+pub fn extended_path_env() -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if let Ok(existing) = std::env::var("PATH") {
+        if !existing.is_empty() {
+            parts.push(existing);
+        }
+    }
+    if let Some(home) = dirs::home_dir() {
+        if let Ok(entries) = std::fs::read_dir(home.join(".nvm/versions/node")) {
+            for entry in entries.flatten() {
+                let bin = entry.path().join("bin");
+                if bin.is_dir() {
+                    parts.push(bin.to_string_lossy().to_string());
+                }
+            }
+        }
+        parts.push(home.join(".local/bin").to_string_lossy().to_string());
+        parts.push(home.join(".cargo/bin").to_string_lossy().to_string());
+    }
+    for p in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"] {
+        parts.push(p.to_string());
+    }
+    parts.join(":")
+}
+
 pub struct CodexProvider {
     command: String,
     timeout_duration: Duration,
@@ -39,6 +71,7 @@ impl CodexProvider {
         let mut child = Command::new(&self.command)
             .arg("app-server")
             .env("CODEX_HOME", &expanded_home)
+            .env("PATH", extended_path_env())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
