@@ -170,6 +170,74 @@ pub struct Settings {
     pub accounts: Vec<AccountConfig>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LoginMethod {
+    Browser,
+    DeviceCode,
+}
+
+impl LoginMethod {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Browser => "browser",
+            Self::DeviceCode => "device_code",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LoginStatus {
+    Pending,
+    Succeeded,
+    Failed,
+    Cancelled,
+    Expired,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoginChallenge {
+    pub attempt_id: String,
+    pub method: LoginMethod,
+    pub status: LoginStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verification_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoginAttempt {
+    pub attempt_id: String,
+    pub account_id: String,
+    pub method: LoginMethod,
+    pub status: LoginStatus,
+    pub started_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observed_email: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AccountStatusView {
+    pub account_id: String,
+    pub provider: ProviderName,
+    pub configured_email: String,
+    pub configured_home: String,
+    pub ready: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observed_email: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HistoryPoint {
     pub account_id: String,

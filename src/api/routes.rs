@@ -1,12 +1,13 @@
 use std::convert::Infallible;
+use std::path::Path as FsPath;
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::extract::{Query, State};
+use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use chrono::Utc;
 use futures::stream::Stream;
@@ -19,9 +20,14 @@ use tokio_stream::StreamExt;
 use tower_http::cors::{Any, CorsLayer};
 
 use super::sse::EventBroadcaster;
-use crate::domain::{AnalyticsResponse, HistoryPoint, HourlyUsageDistribution, Settings};
+use crate::config::save_settings;
+use crate::discovery::discover_accounts;
+use crate::domain::{
+    AccountConfig, AccountStatus, AccountStatusView, AnalyticsResponse, HistoryPoint,
+    HourlyUsageDistribution, LoginAttempt, LoginChallenge, Settings,
+};
 use crate::history::HistoryStore;
-use crate::services::{AnalyticsService, UsageService};
+use crate::services::{AnalyticsService, LoginError, LoginService, UsageService};
 
 #[derive(RustEmbed)]
 #[folder = "static/"]
@@ -34,6 +40,44 @@ pub struct AppState {
     pub analytics_service: Arc<AnalyticsService>,
     pub history_store: Arc<HistoryStore>,
     pub broadcaster: Arc<EventBroadcaster>,
+    pub login_service: Arc<LoginService>,
+}
+
+pub struct ApiError {
+    status: StatusCode,
+    detail: String,
+}
+
+impl ApiError {
+    fn new(status: StatusCode, detail: impl Into<String>) -> Self {
+        Self {
+            status,
+            detail: detail.into(),
+        }
+    }
+}
+
+impl IntoResponse for ApiError {
+    fn into_response(self) -> Response {
+        (self.status, Json(json!({ "detail": self.detail }))).into_response()
+    }
+}
+
+impl From<LoginError> for ApiError {
+    fn from(error: LoginError) -> Self {
+        match error {
+            LoginError::AccountNotFound => {
+                ApiError::new(StatusCode::NOT_FOUND, "Account not found")
+            }
+            LoginError::AttemptNotFound => {
+                ApiError::new(StatusCode::NOT_FOUND, "Login attempt not found")
+            }
+            LoginError::Conflict(msg) => ApiError::new(StatusCode::CONFLICT, msg),
+            LoginError::Internal(msg) => {
+                ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, msg)
+            }
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -159,6 +203,135 @@ pub async fn events_handler(
     )
 }
 
+pub async fn accounts_handler(State(state): State<AppState>) -> Json<Vec<AccountStatusView>> {
+    let settings = state.settings.read().await.clone();
+    let mut views = Vec::with_capacity(settings.accounts.len());
+    for account in &settings.accounts {
+        let cached = state.usage_service.get_cached(&account.id).await;
+        let ready = match &cached {
+            Some(snapshot) => snapshot.status != AccountStatus::Unavailable,
+            None => FsPath::new(&account.expanded_home()).exists(),
+        };
+        views.push(AccountStatusView {
+            account_id: account.id.clone(),
+            provider: account.provider,
+            configured_email: account.email.clone(),
+            configured_home: account.home.clone(),
+            ready,
+            observed_email: cached.as_ref().and_then(|s| s.observed_email.clone()),
+            message: cached.as_ref().and_then(|s| s.message.clone()),
+        });
+    }
+    Json(views)
+}
+
+pub async fn discover_handler(State(state): State<AppState>) -> Json<Vec<AccountConfig>> {
+    let settings = state.settings.read().await.clone();
+    let existing: Vec<&str> = settings.accounts.iter().map(|a| a.id.as_str()).collect();
+    Json(discover_accounts(&existing))
+}
+
+#[derive(Deserialize)]
+pub struct DiscoverApplyRequest {
+    #[serde(default)]
+    pub account_ids: Option<Vec<String>>,
+}
+
+pub async fn discover_apply_handler(
+    State(state): State<AppState>,
+    Json(req): Json<DiscoverApplyRequest>,
+) -> Result<Json<Vec<AccountConfig>>, ApiError> {
+    let mut settings = state.settings.write().await;
+    let existing: Vec<&str> = settings.accounts.iter().map(|a| a.id.as_str()).collect();
+    let mut candidates = discover_accounts(&existing);
+    if let Some(ids) = req.account_ids {
+        let id_set: std::collections::HashSet<String> = ids.into_iter().collect();
+        candidates.retain(|c| id_set.contains(&c.id));
+    }
+
+    if candidates.is_empty() {
+        return Ok(Json(settings.accounts.clone()));
+    }
+
+    settings.accounts.extend(candidates);
+    save_settings(&settings)
+        .map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(settings.accounts.clone()))
+}
+
+pub async fn save_account_config_handler(
+    State(state): State<AppState>,
+    Json(account): Json<AccountConfig>,
+) -> Result<Json<Vec<AccountConfig>>, ApiError> {
+    let mut settings = state.settings.write().await;
+    settings.accounts.retain(|a| a.id != account.id);
+    settings.accounts.push(account);
+    save_settings(&settings)
+        .map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(settings.accounts.clone()))
+}
+
+pub async fn delete_account_config_handler(
+    State(state): State<AppState>,
+    Path(account_id): Path<String>,
+) -> Result<Json<Vec<AccountConfig>>, ApiError> {
+    let mut settings = state.settings.write().await;
+    let before = settings.accounts.len();
+    let filtered: Vec<AccountConfig> = settings
+        .accounts
+        .iter()
+        .filter(|a| a.id != account_id)
+        .cloned()
+        .collect();
+    if filtered.len() == before {
+        return Err(ApiError::new(StatusCode::NOT_FOUND, "Account not found"));
+    }
+    if filtered.is_empty() {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "Cannot delete the last remaining account",
+        ));
+    }
+    settings.accounts = filtered;
+    save_settings(&settings)
+        .map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(settings.accounts.clone()))
+}
+
+#[derive(Deserialize)]
+pub struct LoginStartRequest {
+    pub method: String,
+}
+
+pub async fn login_start_handler(
+    State(state): State<AppState>,
+    Path(account_id): Path<String>,
+    Json(req): Json<LoginStartRequest>,
+) -> Result<(StatusCode, Json<LoginChallenge>), ApiError> {
+    let settings = state.settings.read().await.clone();
+    let challenge = state
+        .login_service
+        .start(&settings, &account_id, &req.method)
+        .await?;
+    Ok((StatusCode::ACCEPTED, Json(challenge)))
+}
+
+pub async fn login_status_handler(
+    State(state): State<AppState>,
+    Path((account_id, attempt_id)): Path<(String, String)>,
+) -> Result<Json<LoginAttempt>, ApiError> {
+    let attempt = state.login_service.status(&account_id, &attempt_id).await?;
+    Ok(Json(attempt))
+}
+
+pub async fn login_cancel_handler(
+    State(state): State<AppState>,
+    Path((account_id, attempt_id)): Path<(String, String)>,
+) -> Result<Json<LoginAttempt>, ApiError> {
+    let attempt = state.login_service.cancel(&account_id, &attempt_id).await?;
+    Ok(Json(attempt))
+}
+
 pub async fn static_handler(axum::extract::Path(path): axum::extract::Path<String>) -> Response {
     let raw = path.trim_start_matches('/');
     let target = if raw.is_empty() {
@@ -205,6 +378,26 @@ pub fn create_router(state: AppState) -> Router {
         .route("/v1/history", get(history_handler))
         .route("/v1/analytics/heatmap", get(heatmap_handler))
         .route("/v1/events", get(events_handler))
+        .route("/v1/accounts", get(accounts_handler))
+        .route("/v1/accounts/discover", get(discover_handler))
+        .route("/v1/accounts/discover/apply", post(discover_apply_handler))
+        .route("/v1/accounts/config", post(save_account_config_handler))
+        .route(
+            "/v1/accounts/config/{account_id}",
+            delete(delete_account_config_handler),
+        )
+        .route(
+            "/v1/accounts/{account_id}/login/start",
+            post(login_start_handler),
+        )
+        .route(
+            "/v1/accounts/{account_id}/login/{attempt_id}",
+            get(login_status_handler),
+        )
+        .route(
+            "/v1/accounts/{account_id}/login/{attempt_id}/cancel",
+            post(login_cancel_handler),
+        )
         .route("/", get(index_handler))
         .route("/{*path}", get(static_handler))
         .layer(cors)

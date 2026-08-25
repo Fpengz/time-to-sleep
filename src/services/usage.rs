@@ -20,10 +20,13 @@ pub struct UsageService {
 
 impl UsageService {
     pub fn new(providers: HashMap<ProviderName, Arc<dyn UsageProvider>>) -> Self {
+        // Codex/Antigravity fetches spawn a subprocess (codex app-server, ps/lsof scans),
+        // so TTLs stay well above the dashboard's poll interval to avoid re-spawning
+        // those processes on every tick.
         let mut ttls = HashMap::new();
-        ttls.insert(ProviderName::Codex, chrono::Duration::seconds(60));
+        ttls.insert(ProviderName::Codex, chrono::Duration::seconds(180));
         ttls.insert(ProviderName::Claude, chrono::Duration::seconds(300));
-        ttls.insert(ProviderName::Antigravity, chrono::Duration::seconds(20));
+        ttls.insert(ProviderName::Antigravity, chrono::Duration::seconds(90));
 
         let mut timeouts = HashMap::new();
         timeouts.insert(ProviderName::Codex, Duration::from_secs(15));
@@ -36,6 +39,14 @@ impl UsageService {
             timeouts,
             cache: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    pub async fn get_cached(&self, account_id: &str) -> Option<UsageSnapshot> {
+        self.cache
+            .read()
+            .await
+            .get(account_id)
+            .map(|(snap, _)| snap.clone())
     }
 
     pub async fn collect(&self, settings: &Settings, force_refresh: bool) -> Vec<UsageSnapshot> {

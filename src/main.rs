@@ -14,7 +14,7 @@ use time_to_sleep::providers::antigravity::AntigravityProvider;
 use time_to_sleep::providers::claude::ClaudeProvider;
 use time_to_sleep::providers::codex::CodexProvider;
 use time_to_sleep::providers::UsageProvider;
-use time_to_sleep::services::{AnalyticsService, UsageService};
+use time_to_sleep::services::{AnalyticsService, LoginService, UsageService};
 use tokio::sync::RwLock;
 
 #[derive(Parser)]
@@ -139,6 +139,7 @@ async fn main() -> Result<()> {
             let settings = Arc::new(RwLock::new(load_settings()));
             let (usage_service, analytics_service, history_store) = build_services();
             let broadcaster = Arc::new(EventBroadcaster::new());
+            let login_service = Arc::new(LoginService::new());
 
             let state = AppState {
                 settings,
@@ -146,6 +147,7 @@ async fn main() -> Result<()> {
                 analytics_service,
                 history_store,
                 broadcaster,
+                login_service,
             };
 
             let app = create_router(state);
@@ -210,6 +212,7 @@ async fn main() -> Result<()> {
             let settings = Arc::new(RwLock::new(load_settings()));
             let (usage_service, analytics_service, history_store) = build_services();
             let broadcaster = Arc::new(EventBroadcaster::new());
+            let login_service = Arc::new(LoginService::new());
 
             let state = AppState {
                 settings,
@@ -217,6 +220,7 @@ async fn main() -> Result<()> {
                 analytics_service,
                 history_store,
                 broadcaster,
+                login_service,
             };
 
             let app = create_router(state);
