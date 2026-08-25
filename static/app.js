@@ -630,7 +630,9 @@ function renderAccount(snapshot) {
     });
     gauge.append(ringSvg(54, 5, peak, usageColorVar(peak)));
     const num = element("div", { className: "account-gauge-num" });
-    num.append(document.createTextNode(String(Math.round(peak))), element("small", { text: "%" }));
+    const numInner = element("span");
+    numInner.append(document.createTextNode(String(Math.round(peak))), element("small", { text: "%" }));
+    num.append(numInner);
     gauge.append(num);
     headerRight.append(gauge);
   }
