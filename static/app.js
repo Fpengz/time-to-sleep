@@ -711,9 +711,10 @@ function renderAccount(snapshot) {
     if (sparkline) card.append(sparkline);
   }
 
-  if (snapshot.message || snapshot.error_code) {
+  const hasErrorCode = snapshot.error_code && snapshot.error_code !== "none";
+  if (snapshot.message || hasErrorCode) {
     const alertBox = element("div", { className: "account-alert-banner" });
-    if (snapshot.error_code) {
+    if (hasErrorCode) {
       alertBox.append(element("span", { className: "account-error", text: snapshot.error_code.replaceAll("_", " ") }));
     }
     if (snapshot.message) {

@@ -11,7 +11,7 @@ use crate::domain::{
     AccountConfig, AccountStatus, ErrorCode, ProviderName, UsageSnapshot, UsageWindow,
 };
 
-const CLAUDE_USAGE_URL: &str = "https://api.anthropic.com/api/organizations/usage";
+const CLAUDE_USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
 
 pub struct ClaudeProvider {
     client: Client,
@@ -187,6 +187,9 @@ impl UsageProvider for ClaudeProvider {
         }
 
         if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            let detail = body.chars().take(200).collect::<String>();
             return UsageSnapshot {
                 account_id: account.id.clone(),
                 provider: ProviderName::Claude,
@@ -194,7 +197,11 @@ impl UsageProvider for ClaudeProvider {
                 observed_email: None,
                 status: AccountStatus::Unavailable,
                 error_code: ErrorCode::UpstreamError,
-                message: Some(format!("HTTP error {}", response.status())),
+                message: Some(if detail.is_empty() {
+                    format!("HTTP error {}", status)
+                } else {
+                    format!("HTTP error {}: {}", status, detail)
+                }),
                 source: "claude_oauth".to_string(),
                 plan_type: None,
                 observed_at: Some(retrieved_at),
@@ -224,29 +231,25 @@ impl UsageProvider for ClaudeProvider {
         };
 
         let mut windows = Vec::new();
-        if let Some(five_h) = doc.get("five_hour") {
-            let used = five_h
-                .get("used_percent")
+        for (window_id, minutes) in [("five_hour", 300), ("seven_day", 10080)] {
+            let Some(raw) = doc.get(window_id) else {
+                continue;
+            };
+            let Some(used) = raw
+                .get("utilization")
+                .or_else(|| raw.get("used_percentage"))
                 .and_then(|v| v.as_f64())
-                .unwrap_or(0.0);
+            else {
+                continue;
+            };
+            let resets_at = raw
+                .get("resets_at")
+                .and_then(|v| super::parsers::parse_timestamp(v, false).ok());
             windows.push(UsageWindow {
-                id: "five_hour".to_string(),
+                id: window_id.to_string(),
                 used_percent: used,
-                window_minutes: Some(300),
-                resets_at: None,
-                raw_limits: None,
-            });
-        }
-        if let Some(seven_d) = doc.get("seven_day") {
-            let used = seven_d
-                .get("used_percent")
-                .and_then(|v| v.as_f64())
-                .unwrap_or(0.0);
-            windows.push(UsageWindow {
-                id: "seven_day".to_string(),
-                used_percent: used,
-                window_minutes: Some(10080),
-                resets_at: None,
+                window_minutes: Some(minutes),
+                resets_at,
                 raw_limits: None,
             });
         }

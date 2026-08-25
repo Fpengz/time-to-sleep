@@ -156,13 +156,18 @@ impl AntigravityProvider {
                 continue;
             };
 
-            let csrf_token = parts.iter().find_map(|arg| {
-                if arg.starts_with("--csrf_token=") {
-                    Some(arg.trim_start_matches("--csrf_token=").to_string())
-                } else {
-                    None
-                }
-            });
+            // The real process passes `--csrf_token <value>` as two separate
+            // argv entries, not `--csrf_token=<value>`; handle both forms.
+            let csrf_token = parts
+                .iter()
+                .position(|arg| *arg == "--csrf_token")
+                .and_then(|i| parts.get(i + 1))
+                .map(|s| s.to_string())
+                .or_else(|| {
+                    parts.iter().find_map(|arg| {
+                        arg.strip_prefix("--csrf_token=").map(|s| s.to_string())
+                    })
+                });
 
             // Find listening ports via lsof
             let lsof_out = Command::new("lsof")
@@ -256,7 +261,7 @@ impl UsageProvider for AntigravityProvider {
         }
 
         let quota_doc = match self
-            .post_grpc_json(&server, "GetQuotaSummary", &json!({}))
+            .post_grpc_json(&server, "RetrieveUserQuotaSummary", &json!({}))
             .await
         {
             Ok(doc) => doc,
