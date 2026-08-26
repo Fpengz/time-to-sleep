@@ -172,5 +172,28 @@ This document outlines proposed improvements, feature expansions, and architectu
   - `Time-to-Sleep.app` directly bundles the compiled release binary (`Contents/Resources/time-to-sleep`).
   - Spawns the native binary directly without shell or interpreter dependencies.
 
+---
+
+## 8. Delivery Optimization & Icon Refresh ✅
+
+### 8.1 Compressed & Cache-Aware HTTP Delivery ✅
+- **Status:** Implemented in `src/api/routes.rs` and `Cargo.toml` (`tower-http` compression features).
+- **Features:**
+  - `CompressionLayer` (gzip/brotli) on all JSON API responses and embedded static assets, shrinking `app.js` transfer size by ~76% (65KB → 16KB gzipped).
+  - ETag generation from `rust-embed`'s baked-in SHA-256 hash with `If-None-Match` → bodyless `304` support, so repeat dashboard loads skip re-downloading unchanged JS/CSS.
+  - `text/event-stream` (SSE) responses are excluded from compression so live push isn't buffered or delayed.
+
+### 8.2 Web UI Render Coalescing ✅
+- **Status:** Implemented in `static/app.js`.
+- **Features:**
+  - The server always broadcasts a `usage` and `analytics` SSE event back-to-back per update cycle; both now funnel through a `requestAnimationFrame`-batched `scheduleRender()` instead of triggering two independent full DOM rebuilds.
+
+### 8.3 macOS Menu Bar Icon Suite Refresh ✅
+- **Status:** Implemented in `macOS/generate_icons.py`, `macOS/AppIcon.icns`, `macOS/MenuIcon.png`.
+- **Features:**
+  - Repeatable icon pipeline (squircle masking, iconset compilation, `.icns` build via `iconutil`) selectable with `python3 macOS/generate_icons.py --concept <1-4>`.
+  - Active concept: **Celestial Chronometer** — a solid-filled crescent moon with a cyan/indigo quota ring, chosen over the initial neon-outline concept because it stays legible at real 16-32px Dock/menu-bar sizes.
+  - Dynamic light/dark `MenuIcon.png` template icon, verified to tint correctly in both appearance modes.
+
 
 

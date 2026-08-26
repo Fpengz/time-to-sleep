@@ -211,6 +211,13 @@ struct MenuContentView: View {
         .frame(width: 372)
         .fixedSize(horizontal: true, vertical: true)
         .background(Color(NSColor.windowBackgroundColor))
+        .onAppear {
+            monitor.popoverVisible = true
+            Task { await monitor.fetchUsage() }
+        }
+        .onDisappear {
+            monitor.popoverVisible = false
+        }
     }
 
     private var header: some View {

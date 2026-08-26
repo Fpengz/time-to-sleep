@@ -9,7 +9,12 @@ class UsageMonitor: ObservableObject {
     @Published var needsAttention: Bool = false
     @Published var lastFetchError: String? = nil
     @Published var isRefreshing: Bool = false
-    
+    /// Set by the menu bar popover on appear/disappear. The 24h history query is only
+    /// needed while the popover's sparklines are on screen, so we skip fetching and
+    /// decoding it on every 60s background tick otherwise — it's the most expensive
+    /// part of each poll (full SQLite scan + JSON payload) for a view nobody sees.
+    var popoverVisible: Bool = false
+
     private var timer: Timer?
     private var previousUsageLevels: [String: Double] = [:]
     private var hasInitializedLevels: Bool = false
@@ -77,16 +82,16 @@ class UsageMonitor: ObservableObject {
         
         do {
             async let usageTask = URLSession.shared.data(from: url)
-            async let historyTask = fetchHistoryPoints(port: port)
+            async let historyTask: [HistoryPointModel]? = popoverVisible ? fetchHistoryPoints(port: port) : nil
 
             let (data, _) = try await usageTask
             let response = try Self.jsonDecoder.decode(UsageResponse.self, from: data)
-            
+
             checkThresholdsAndNotify(newAccounts: response.accounts)
-            
+
             self.accounts = response.accounts
-            self.needsAttention = response.accounts.contains { 
-                $0.status != "live" 
+            self.needsAttention = response.accounts.contains {
+                $0.status != "live"
             }
             self.lastFetchError = nil
 

@@ -17,6 +17,7 @@ use serde_json::json;
 use tokio::sync::RwLock;
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
+use tower_http::compression::CompressionLayer;
 use tower_http::cors::{Any, CorsLayer};
 
 use super::sse::EventBroadcaster;
@@ -73,9 +74,7 @@ impl From<LoginError> for ApiError {
                 ApiError::new(StatusCode::NOT_FOUND, "Login attempt not found")
             }
             LoginError::Conflict(msg) => ApiError::new(StatusCode::CONFLICT, msg),
-            LoginError::Internal(msg) => {
-                ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, msg)
-            }
+            LoginError::Internal(msg) => ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, msg),
         }
     }
 }
@@ -332,7 +331,51 @@ pub async fn login_cancel_handler(
     Ok(Json(attempt))
 }
 
-pub async fn static_handler(axum::extract::Path(path): axum::extract::Path<String>) -> Response {
+fn embedded_asset_response(
+    target: &str,
+    asset: rust_embed::EmbeddedFile,
+    request_headers: &HeaderMap,
+) -> Response {
+    // Embedded assets are content-addressed by rust-embed's baked-in sha256, so an ETag
+    // lets repeat loads resolve to a bodyless 304 instead of re-shipping the JS/CSS bundle
+    // on every page view, without risking staleness across binary upgrades the way a long
+    // max-age on the unversioned /static/* URLs would.
+    let etag = format!("\"{}\"", hex_encode(&asset.metadata.sha256_hash()));
+    if request_headers
+        .get(header::IF_NONE_MATCH)
+        .and_then(|v| v.to_str().ok())
+        == Some(etag.as_str())
+    {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::ETAG, HeaderValue::from_str(&etag).unwrap());
+        return (StatusCode::NOT_MODIFIED, headers).into_response();
+    }
+
+    let mime = mime_guess::from_path(target).first_or_octet_stream();
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_str(mime.as_ref()).unwrap(),
+    );
+    headers.insert(header::ETAG, HeaderValue::from_str(&etag).unwrap());
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    (StatusCode::OK, headers, asset.data).into_response()
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    use std::fmt::Write;
+    bytes
+        .iter()
+        .fold(String::with_capacity(bytes.len() * 2), |mut acc, b| {
+            let _ = write!(acc, "{:02x}", b);
+            acc
+        })
+}
+
+pub async fn static_handler(
+    axum::extract::Path(path): axum::extract::Path<String>,
+    headers: HeaderMap,
+) -> Response {
     let raw = path.trim_start_matches('/');
     let target = if raw.is_empty() {
         "index.html"
@@ -343,27 +386,16 @@ pub async fn static_handler(axum::extract::Path(path): axum::extract::Path<Strin
     };
 
     if let Some(asset) = StaticAssets::get(target) {
-        let mime = mime_guess::from_path(target).first_or_octet_stream();
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            header::CONTENT_TYPE,
-            HeaderValue::from_str(mime.as_ref()).unwrap(),
-        );
-        (StatusCode::OK, headers, asset.data).into_response()
+        embedded_asset_response(target, asset, &headers)
     } else if let Some(asset) = StaticAssets::get("index.html") {
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            header::CONTENT_TYPE,
-            HeaderValue::from_static("text/html; charset=utf-8"),
-        );
-        (StatusCode::OK, headers, asset.data).into_response()
+        embedded_asset_response("index.html", asset, &headers)
     } else {
         (StatusCode::NOT_FOUND, "Not Found").into_response()
     }
 }
 
-pub async fn index_handler() -> Response {
-    static_handler(axum::extract::Path("index.html".to_string())).await
+pub async fn index_handler(headers: HeaderMap) -> Response {
+    static_handler(axum::extract::Path("index.html".to_string()), headers).await
 }
 
 pub fn create_router(state: AppState) -> Router {
@@ -401,5 +433,6 @@ pub fn create_router(state: AppState) -> Router {
         .route("/", get(index_handler))
         .route("/{*path}", get(static_handler))
         .layer(cors)
+        .layer(CompressionLayer::new())
         .with_state(state)
 }

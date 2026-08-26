@@ -5,7 +5,7 @@ use std::sync::Arc;
 use time_to_sleep::api::{create_router, AppState, EventBroadcaster};
 use time_to_sleep::domain::Settings;
 use time_to_sleep::history::HistoryStore;
-use time_to_sleep::services::{AnalyticsService, UsageService};
+use time_to_sleep::services::{AnalyticsService, LoginService, UsageService};
 use tokio::sync::RwLock;
 use tower::ServiceExt;
 
@@ -15,6 +15,7 @@ fn build_test_app() -> axum::Router {
     let analytics_service = Arc::new(AnalyticsService::new());
     let history_store = Arc::new(HistoryStore::new(None).unwrap());
     let broadcaster = Arc::new(EventBroadcaster::new());
+    let login_service = Arc::new(LoginService::new());
 
     let state = AppState {
         settings,
@@ -22,6 +23,7 @@ fn build_test_app() -> axum::Router {
         analytics_service,
         history_store,
         broadcaster,
+        login_service,
     };
 
     create_router(state)

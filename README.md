@@ -12,6 +12,7 @@ Features a **compiled native Rust core** with an Axum HTTP/SSE server, embedded 
 * 🪶 **Ultra-Low Memory Footprint**: Drops idle resident memory from ~35 MB to **`< 4.9 MB`**.
 * 📦 **Single Standalone Mach-O Binary**: **`4.9 MB`** release binary bundling the entire HTTP server, SQLite engine, SSE broadcaster, CLI tools, and embedded Web UI. Zero Python/uv runtime dependencies required for distribution.
 * 🚀 **Fast SQLite History Engine**: Ingests 1,000 snapshots with 5-minute deduplication in **`1.82 ms`** (8.5x faster).
+* 🗜️ **Compressed & Cached Delivery**: gzip/brotli response compression plus ETag-based `304` revalidation shrinks the Web UI bundle transfer by ~76% and skips re-shipping unchanged assets on repeat loads.
 
 ---
 
@@ -50,6 +51,8 @@ A lightweight native SwiftUI Menu Bar companion application is located in `macOS
 * **Live Quota in Menu Bar**: Displays peak active percentage (`19%`) directly in your menu bar.
 * **Native Notifications**: Real-time alerts at 80% warning and 95% critical thresholds, plus reset notifications.
 * **Self-Contained Bundle**: `Time-to-Sleep.app` directly bundles and executes the native Rust binary (`Contents/Resources/time-to-sleep`) without shell dependencies.
+* **Celestial Icon Suite**: Custom app icon (`AppIcon.icns`) and dynamic light/dark menu bar template icon (`MenuIcon.png`), regenerated on demand via `macOS/generate_icons.py --concept <n>`.
+* **Popover-Gated History Fetch**: The 24h trend history query only runs while the menu bar dropdown is open, instead of polling it in the background every 60s.
 * **Build & Run**:
   ```bash
   cd macOS && ./build.sh

@@ -35,6 +35,9 @@ Thumbs.db
 macOS/Time-to-Sleep.app/
 macOS/AppIcon.iconset/
 
+# Scratch / working files
+scratch/
+
 # Downloaded datasets
 data/
 

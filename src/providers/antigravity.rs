@@ -164,9 +164,9 @@ impl AntigravityProvider {
                 .and_then(|i| parts.get(i + 1))
                 .map(|s| s.to_string())
                 .or_else(|| {
-                    parts.iter().find_map(|arg| {
-                        arg.strip_prefix("--csrf_token=").map(|s| s.to_string())
-                    })
+                    parts
+                        .iter()
+                        .find_map(|arg| arg.strip_prefix("--csrf_token=").map(|s| s.to_string()))
                 });
 
             // Find listening ports via lsof

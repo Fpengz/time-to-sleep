@@ -1673,6 +1673,20 @@ function setupAccountModal() {
   });
 }
 
+// The server always broadcasts a "usage" and "analytics" event back-to-back for
+// each update cycle, so a naive render() per event rebuilds the entire account
+// list (every card, every SVG gauge) twice for one logical change. Coalesce
+// same-frame updates into a single render.
+let renderScheduled = false;
+function scheduleRender() {
+  if (renderScheduled) return;
+  renderScheduled = true;
+  requestAnimationFrame(() => {
+    renderScheduled = false;
+    render();
+  });
+}
+
 function setupEventSource() {
   if (!window.EventSource) return;
   const es = new EventSource("/v1/events");
@@ -1683,7 +1697,7 @@ function setupEventSource() {
         state.snapshots = data.accounts;
         state.lastGeneratedAt = data.generated_at;
         updateTimestamp(data.generated_at);
-        render();
+        scheduleRender();
       }
     } catch (err) {
       console.warn("Failed to parse SSE usage data:", err);
@@ -1692,7 +1706,7 @@ function setupEventSource() {
   es.addEventListener("analytics", (e) => {
     try {
       state.analytics = JSON.parse(e.data);
-      render();
+      scheduleRender();
     } catch (err) {
       console.warn("Failed to parse SSE analytics data:", err);
     }

@@ -41,7 +41,14 @@ pub fn extended_path_env() -> String {
         parts.push(home.join(".local/bin").to_string_lossy().to_string());
         parts.push(home.join(".cargo/bin").to_string_lossy().to_string());
     }
-    for p in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"] {
+    for p in [
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+        "/usr/bin",
+        "/bin",
+        "/usr/sbin",
+        "/sbin",
+    ] {
         parts.push(p.to_string());
     }
     parts.join(":")
