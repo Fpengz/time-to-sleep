@@ -145,6 +145,7 @@ async fn test_api_save_settings_preserves_accounts() {
         home: "~/.codex".to_string(),
         priority: 0,
         warning_threshold: 80.0,
+        critical_threshold: 95.0,
         auto_retrieval: true,
     };
 
