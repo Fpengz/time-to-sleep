@@ -164,7 +164,10 @@ async fn test_history_query_rejects_invalid_ranges() {
 
 #[tokio::test]
 async fn test_heatmap_query_rejects_invalid_ranges() {
-    for uri in ["/v1/analytics/heatmap?days=0", "/v1/analytics/heatmap?days=31"] {
+    for uri in [
+        "/v1/analytics/heatmap?days=0",
+        "/v1/analytics/heatmap?days=31",
+    ] {
         let response = build_test_app()
             .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
             .await
