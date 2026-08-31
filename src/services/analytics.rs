@@ -42,7 +42,7 @@ impl AnalyticsService {
         }
 
         for history in histories.values_mut() {
-            history.sort_by(|a, b| a.0.cmp(&b.0));
+            history.sort_by_key(|a| a.0);
             Self::trim_history(history);
         }
 
