@@ -17,6 +17,12 @@ The product surfaces information in this order:
 
 This replaces the previous hierarchy where the hero, summary cards, account gauges, inline sparklines, and analytics page repeated several of the same signals.
 
+## Recommendation safety rule
+
+A primary “use this account” recommendation requires a **live** provider snapshot with at least one readable quota window.
+
+Cached, stale, rate-limited, and unavailable accounts remain visible for context, but they are never promoted as the current best option. If no live readable account exists, both the Web dashboard and macOS companion explicitly say that no live account is ready instead of converting stale information into a confident recommendation.
+
 ## Web dashboard
 
 ### Overview
@@ -31,7 +37,7 @@ headroom = 100 - highest active used_percent for that account
 
 The account's highest active quota percentage is deliberately used as its pressure score. This makes a nearly exhausted long-window quota visible even when a shorter window still has plenty of capacity.
 
-When server analytics marks a live account as recommended, the Web UI prefers that recommendation. Otherwise it falls back to the live account with the lowest pressure score.
+When server analytics marks a live account as recommended, the Web UI prefers that recommendation. Otherwise it selects the live account with the lowest pressure score. If there is no live readable account, the recommendation is withheld.
 
 The compact fleet strip then reports:
 
@@ -135,6 +141,7 @@ CI verifies Rust, Swift, release building, packaging, and regressions, but it do
 - one account with multiple quota windows,
 - a mix of live, cached/stale, rate-limited, and unavailable accounts,
 - a recommended account near a warning/critical threshold,
+- an all-cached/stale state to confirm no account is presented as “use now”,
 - Overview ↔ History navigation and browser back/forward behavior,
 - account/discovery/preferences dialogs,
 - macOS popover with short and long email/account labels.
