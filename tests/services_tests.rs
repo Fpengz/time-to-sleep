@@ -62,6 +62,7 @@ fn test_analytics_service_smart_routing() {
                 home: "/tmp".into(),
                 priority: 0,
                 warning_threshold: 80.0,
+                auto_retrieval: true,
             },
             AccountConfig {
                 id: "claude".into(),
@@ -70,8 +71,10 @@ fn test_analytics_service_smart_routing() {
                 home: "/tmp".into(),
                 priority: 0,
                 warning_threshold: 80.0,
+                auto_retrieval: true,
             },
         ],
+        ..Default::default()
     };
 
     let result = analytics.analyze(&snapshots, Some(&settings));

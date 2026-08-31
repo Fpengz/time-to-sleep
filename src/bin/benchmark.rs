@@ -161,8 +161,10 @@ async fn main() {
                 home: "/tmp".to_string(),
                 priority: 0,
                 warning_threshold: 80.0,
+                auto_retrieval: true,
             })
             .collect(),
+        ..Default::default()
     };
 
     let t0_analytics = Instant::now();

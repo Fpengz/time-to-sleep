@@ -13,21 +13,12 @@ type CachedSnapshotMap = HashMap<String, (UsageSnapshot, DateTime<Utc>)>;
 
 pub struct UsageService {
     providers: HashMap<ProviderName, Arc<dyn UsageProvider>>,
-    ttls: HashMap<ProviderName, chrono::Duration>,
     timeouts: HashMap<ProviderName, Duration>,
     cache: Arc<RwLock<CachedSnapshotMap>>,
 }
 
 impl UsageService {
     pub fn new(providers: HashMap<ProviderName, Arc<dyn UsageProvider>>) -> Self {
-        // Codex/Antigravity fetches spawn a subprocess (codex app-server, ps/lsof scans),
-        // so TTLs stay well above the dashboard's poll interval to avoid re-spawning
-        // those processes on every tick.
-        let mut ttls = HashMap::new();
-        ttls.insert(ProviderName::Codex, chrono::Duration::seconds(180));
-        ttls.insert(ProviderName::Claude, chrono::Duration::seconds(300));
-        ttls.insert(ProviderName::Antigravity, chrono::Duration::seconds(90));
-
         let mut timeouts = HashMap::new();
         timeouts.insert(ProviderName::Codex, Duration::from_secs(15));
         timeouts.insert(ProviderName::Claude, Duration::from_secs(10));
@@ -35,7 +26,6 @@ impl UsageService {
 
         Self {
             providers,
-            ttls,
             timeouts,
             cache: Arc::new(RwLock::new(HashMap::new())),
         }
@@ -57,24 +47,39 @@ impl UsageService {
             let acc = acc.clone();
             let cache_lock = self.cache.clone();
             let provider = self.providers.get(&acc.provider).cloned();
-            let ttl = self
-                .ttls
-                .get(&acc.provider)
-                .copied()
-                .unwrap_or(chrono::Duration::seconds(30));
+
+            let ttl_secs = settings.auto_retrieval.ttl_for_provider(&acc.provider);
+            let ttl = chrono::Duration::seconds(ttl_secs as i64);
+
             let timeout_dur = self
                 .timeouts
                 .get(&acc.provider)
                 .copied()
                 .unwrap_or(Duration::from_secs(10));
+            let auto_retrieval_allowed = settings.auto_retrieval.enabled && acc.auto_retrieval;
 
             tasks.push(tokio::spawn(async move {
                 if !force_refresh {
                     let cache = cache_lock.read().await;
                     if let Some((snap, cached_time)) = cache.get(&acc.id) {
-                        if now - *cached_time < ttl {
+                        if !auto_retrieval_allowed || (now - *cached_time < ttl) {
                             return snap.clone();
                         }
+                    } else if !auto_retrieval_allowed {
+                        return UsageSnapshot {
+                            account_id: acc.id.clone(),
+                            provider: acc.provider,
+                            configured_email: acc.email.clone(),
+                            observed_email: None,
+                            status: AccountStatus::Cached,
+                            error_code: ErrorCode::None,
+                            message: Some("Auto-retrieval paused in preferences".to_string()),
+                            source: acc.provider.as_str().to_string(),
+                            plan_type: None,
+                            observed_at: Some(now),
+                            retrieved_at: Some(now),
+                            windows: vec![],
+                        };
                     }
                 }
 

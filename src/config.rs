@@ -6,6 +6,9 @@ use crate::discovery::discover_accounts;
 use crate::domain::Settings;
 
 pub fn settings_path() -> PathBuf {
+    if let Ok(override_dir) = std::env::var("TIME_TO_SLEEP_CONFIG_DIR") {
+        return PathBuf::from(override_dir).join("settings.json");
+    }
     if let Some(home) = dirs::home_dir() {
         home.join(".config/time-to-sleep/settings.json")
     } else {
@@ -37,6 +40,7 @@ pub fn load_settings() -> Settings {
     let discovered = discover_accounts(&[]);
     let settings = Settings {
         accounts: discovered,
+        ..Default::default()
     };
     let _ = save_settings(&settings);
     settings

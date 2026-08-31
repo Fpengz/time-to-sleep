@@ -145,8 +145,21 @@ impl CodexProvider {
 
         let retrieved_at = Utc::now();
 
-        let Some(acc_obj) = account_data else {
-            bail!("missing account payload");
+        let Some(acc_obj) = account_data.as_ref().and_then(|v| v.as_object()) else {
+            return Ok(UsageSnapshot {
+                account_id: account.id.clone(),
+                provider: ProviderName::Codex,
+                configured_email: account.email.clone(),
+                observed_email: None,
+                status: AccountStatus::Unavailable,
+                error_code: ErrorCode::NotAuthenticated,
+                message: Some("Not logged in; run login to authenticate".to_string()),
+                source: "codex_app_server".to_string(),
+                plan_type: None,
+                observed_at: Some(retrieved_at),
+                retrieved_at: Some(retrieved_at),
+                windows: vec![],
+            });
         };
         let observed_email = acc_obj
             .get("email")
@@ -156,25 +169,6 @@ impl CodexProvider {
             .get("planType")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
-
-        if let Some(ref obs_email) = observed_email {
-            if !obs_email.eq_ignore_ascii_case(&account.email) {
-                return Ok(UsageSnapshot {
-                    account_id: account.id.clone(),
-                    provider: ProviderName::Codex,
-                    configured_email: account.email.clone(),
-                    observed_email: Some(obs_email.clone()),
-                    status: AccountStatus::Unavailable,
-                    error_code: ErrorCode::IdentityMismatch,
-                    message: Some(format!("Expected {}, found {}", account.email, obs_email)),
-                    source: "codex_app_server".to_string(),
-                    plan_type,
-                    observed_at: Some(retrieved_at),
-                    retrieved_at: Some(retrieved_at),
-                    windows: vec![],
-                });
-            }
-        }
 
         let mut windows = Vec::new();
         if let Some(limits) = rate_limits_data.and_then(|v| v.as_object().cloned()) {

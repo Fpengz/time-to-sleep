@@ -270,6 +270,22 @@ pub async fn save_account_config_handler(
     Ok(Json(settings.accounts.clone()))
 }
 
+pub async fn get_settings_handler(State(state): State<AppState>) -> Json<Settings> {
+    let settings = state.settings.read().await.clone();
+    Json(settings)
+}
+
+pub async fn save_settings_handler(
+    State(state): State<AppState>,
+    Json(new_settings): Json<Settings>,
+) -> Result<Json<Settings>, ApiError> {
+    let mut settings = state.settings.write().await;
+    settings.auto_retrieval = new_settings.auto_retrieval;
+    save_settings(&settings)
+        .map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(settings.clone()))
+}
+
 pub async fn delete_account_config_handler(
     State(state): State<AppState>,
     Path(account_id): Path<String>,
@@ -417,6 +433,10 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/v1/accounts/config/{account_id}",
             delete(delete_account_config_handler),
+        )
+        .route(
+            "/v1/settings",
+            get(get_settings_handler).post(save_settings_handler),
         )
         .route(
             "/v1/accounts/{account_id}/login/start",

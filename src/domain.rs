@@ -77,6 +77,12 @@ pub struct AccountConfig {
     pub priority: i32,
     #[serde(default = "default_warning_threshold")]
     pub warning_threshold: f64,
+    #[serde(default = "default_true")]
+    pub auto_retrieval: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 fn default_warning_threshold() -> f64 {
@@ -164,10 +170,64 @@ pub struct AnalyticsResponse {
     pub suggestions: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AutoRetrievalSettings {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_poll_interval_secs")]
+    pub poll_interval_secs: u64,
+    #[serde(default = "default_codex_ttl_secs")]
+    pub codex_ttl_secs: u64,
+    #[serde(default = "default_claude_ttl_secs")]
+    pub claude_ttl_secs: u64,
+    #[serde(default = "default_antigravity_ttl_secs")]
+    pub antigravity_ttl_secs: u64,
+}
+
+fn default_poll_interval_secs() -> u64 {
+    60
+}
+
+fn default_codex_ttl_secs() -> u64 {
+    180
+}
+
+fn default_claude_ttl_secs() -> u64 {
+    300
+}
+
+fn default_antigravity_ttl_secs() -> u64 {
+    90
+}
+
+impl AutoRetrievalSettings {
+    pub fn ttl_for_provider(&self, provider: &ProviderName) -> u64 {
+        match provider {
+            ProviderName::Codex => self.codex_ttl_secs,
+            ProviderName::Claude => self.claude_ttl_secs,
+            ProviderName::Antigravity => self.antigravity_ttl_secs,
+        }
+    }
+}
+
+impl Default for AutoRetrievalSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            poll_interval_secs: default_poll_interval_secs(),
+            codex_ttl_secs: default_codex_ttl_secs(),
+            claude_ttl_secs: default_claude_ttl_secs(),
+            antigravity_ttl_secs: default_antigravity_ttl_secs(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct Settings {
     #[serde(default)]
     pub accounts: Vec<AccountConfig>,
+    #[serde(default)]
+    pub auto_retrieval: AutoRetrievalSettings,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

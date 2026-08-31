@@ -15,7 +15,8 @@ const CLAUDE_USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
 
 pub struct ClaudeProvider {
     client: Client,
-    cached_token: Mutex<Option<String>>,
+    cached_token: Mutex<Option<(String, Option<String>)>>,
+    rate_limited_until: Mutex<Option<std::time::Instant>>,
 }
 
 impl Default for ClaudeProvider {
@@ -32,14 +33,15 @@ impl ClaudeProvider {
                 .build()
                 .unwrap_or_default(),
             cached_token: Mutex::new(None),
+            rate_limited_until: Mutex::new(None),
         }
     }
 
-    pub async fn get_token(&self, home: &str) -> Option<String> {
+    pub async fn get_credentials(&self, home: &str) -> Option<(String, Option<String>)> {
         if let Ok(env_tok) = std::env::var("CLAUDE_CODE_OAUTH_TOKEN") {
             let trimmed = env_tok.trim().to_string();
             if !trimmed.is_empty() {
-                return Some(trimmed);
+                return Some((trimmed, None));
             }
         }
 
@@ -51,10 +53,10 @@ impl ClaudeProvider {
         }
 
         // Try reading from keychain on macOS
-        if let Some(token) = Self::read_keychain().await {
+        if let Some(creds) = Self::read_keychain().await {
             let mut cached = self.cached_token.lock().unwrap();
-            *cached = Some(token.clone());
-            return Some(token);
+            *cached = Some(creds.clone());
+            return Some(creds);
         }
 
         // Try ~/.credentials.json
@@ -62,9 +64,11 @@ impl ClaudeProvider {
         if cred_path.is_file() {
             if let Ok(content) = std::fs::read_to_string(&cred_path) {
                 if let Some(token) = Self::extract_token(&content) {
+                    let email = Self::extract_email(&content);
+                    let creds = (token, email);
                     let mut cached = self.cached_token.lock().unwrap();
-                    *cached = Some(token.clone());
-                    return Some(token);
+                    *cached = Some(creds.clone());
+                    return Some(creds);
                 }
             }
         }
@@ -72,12 +76,16 @@ impl ClaudeProvider {
         None
     }
 
+    pub async fn get_token(&self, home: &str) -> Option<String> {
+        self.get_credentials(home).await.map(|(t, _)| t)
+    }
+
     pub fn invalidate(&self) {
         let mut cached = self.cached_token.lock().unwrap();
         *cached = None;
     }
 
-    async fn read_keychain() -> Option<String> {
+    async fn read_keychain() -> Option<(String, Option<String>)> {
         let username = std::env::var("USER").ok()?;
         let output = tokio::process::Command::new("security")
             .args([
@@ -94,10 +102,24 @@ impl ClaudeProvider {
 
         if output.status.success() {
             let raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            Self::extract_token(&raw)
+            let token = Self::extract_token(&raw)?;
+            let email = Self::extract_email(&raw);
+            Some((token, email))
         } else {
             None
         }
+    }
+
+    fn extract_email(raw: &str) -> Option<String> {
+        if let Ok(val) = serde_json::from_str::<Value>(raw) {
+            if let Some(email) = val.pointer("/claudeAiOauth/email").and_then(|v| v.as_str()) {
+                let trimmed = email.trim().to_string();
+                if !trimmed.is_empty() {
+                    return Some(trimmed);
+                }
+            }
+        }
+        None
     }
 
     fn extract_token(raw: &str) -> Option<String> {
@@ -124,21 +146,54 @@ impl UsageProvider for ClaudeProvider {
     async fn fetch(&self, account: &AccountConfig) -> UsageSnapshot {
         let retrieved_at = Utc::now();
         let expanded_home = account.expanded_home();
-        let Some(token) = self.get_token(&expanded_home).await else {
-            return UsageSnapshot {
-                account_id: account.id.clone(),
-                provider: ProviderName::Claude,
-                configured_email: account.email.clone(),
-                observed_email: None,
-                status: AccountStatus::Unavailable,
-                error_code: ErrorCode::NotAuthenticated,
-                message: Some("No Claude OAuth credential available".to_string()),
-                source: "claude_oauth".to_string(),
-                plan_type: None,
-                observed_at: Some(retrieved_at),
-                retrieved_at: Some(retrieved_at),
-                windows: vec![],
-            };
+
+        // Check if we are currently rate-limited by Anthropic upstream
+        {
+            let rate_limited = self.rate_limited_until.lock().unwrap();
+            if let Some(until) = *rate_limited {
+                let now = std::time::Instant::now();
+                if now < until {
+                    let remaining_secs = until.duration_since(now).as_secs();
+                    return UsageSnapshot {
+                        account_id: account.id.clone(),
+                        provider: ProviderName::Claude,
+                        configured_email: account.email.clone(),
+                        observed_email: Some(account.email.clone()),
+                        status: AccountStatus::RateLimited,
+                        error_code: ErrorCode::RateLimited,
+                        message: Some(format!(
+                            "Claude usage API is rate-limited; cooldown active for {}m {}s",
+                            remaining_secs / 60,
+                            remaining_secs % 60
+                        )),
+                        source: "claude_oauth".to_string(),
+                        plan_type: Some("claude_code".to_string()),
+                        observed_at: Some(retrieved_at),
+                        retrieved_at: Some(retrieved_at),
+                        windows: vec![],
+                    };
+                }
+            }
+        }
+
+        let (token, observed_email) = match self.get_credentials(&expanded_home).await {
+            Some((t, e)) => (t, e.or_else(|| Some(account.email.clone()))),
+            None => {
+                return UsageSnapshot {
+                    account_id: account.id.clone(),
+                    provider: ProviderName::Claude,
+                    configured_email: account.email.clone(),
+                    observed_email: None,
+                    status: AccountStatus::Unavailable,
+                    error_code: ErrorCode::NotAuthenticated,
+                    message: Some("No Claude OAuth credential available".to_string()),
+                    source: "claude_oauth".to_string(),
+                    plan_type: None,
+                    observed_at: Some(retrieved_at),
+                    retrieved_at: Some(retrieved_at),
+                    windows: vec![],
+                };
+            }
         };
 
         let response = match self
@@ -180,6 +235,37 @@ impl UsageProvider for ClaudeProvider {
                 message: Some("Claude credential expired; run claude auth login".to_string()),
                 source: "claude_oauth".to_string(),
                 plan_type: None,
+                observed_at: Some(retrieved_at),
+                retrieved_at: Some(retrieved_at),
+                windows: vec![],
+            };
+        }
+
+        if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            let retry_after_secs = response
+                .headers()
+                .get("retry-after")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.parse::<u64>().ok())
+                .unwrap_or(300);
+
+            let mut rate_limited = self.rate_limited_until.lock().unwrap();
+            *rate_limited =
+                Some(std::time::Instant::now() + std::time::Duration::from_secs(retry_after_secs));
+
+            return UsageSnapshot {
+                account_id: account.id.clone(),
+                provider: ProviderName::Claude,
+                configured_email: account.email.clone(),
+                observed_email: Some(account.email.clone()),
+                status: AccountStatus::RateLimited,
+                error_code: ErrorCode::RateLimited,
+                message: Some(format!(
+                    "Claude usage API is rate-limited by Anthropic; cooldown active for {}m",
+                    retry_after_secs.div_ceil(60)
+                )),
+                source: "claude_oauth".to_string(),
+                plan_type: Some("claude_code".to_string()),
                 observed_at: Some(retrieved_at),
                 retrieved_at: Some(retrieved_at),
                 windows: vec![],
@@ -258,7 +344,7 @@ impl UsageProvider for ClaudeProvider {
             account_id: account.id.clone(),
             provider: ProviderName::Claude,
             configured_email: account.email.clone(),
-            observed_email: Some(account.email.clone()),
+            observed_email,
             status: AccountStatus::Live,
             error_code: ErrorCode::None,
             message: None,

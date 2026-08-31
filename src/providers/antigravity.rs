@@ -52,17 +52,17 @@ impl AntigravityProvider {
             .is_ok()
     }
 
-    pub async fn post_grpc_json(
-        &self,
+    async fn try_post_grpc_json(
+        client: &reqwest::Client,
+        scheme: &str,
         server: &LocalServer,
         method: &str,
         body: &Value,
     ) -> Result<Value> {
-        let mut req_builder = self
-            .client
+        let mut req_builder = client
             .post(format!(
-                "http://127.0.0.1:{}/exa.language_server_pb.LanguageServerService/{}",
-                server.port, method
+                "{}://127.0.0.1:{}/exa.language_server_pb.LanguageServerService/{}",
+                scheme, server.port, method
             ))
             .header("Connect-Protocol-Version", "1")
             .header("Content-Type", "application/json");
@@ -76,27 +76,21 @@ impl AntigravityProvider {
             let val = resp.json::<Value>().await?;
             Ok(val)
         } else {
-            // Try https fallback
-            let mut req_builder = self
-                .client
-                .post(format!(
-                    "https://127.0.0.1:{}/exa.language_server_pb.LanguageServerService/{}",
-                    server.port, method
-                ))
-                .header("Connect-Protocol-Version", "1")
-                .header("Content-Type", "application/json");
-
-            if let Some(ref csrf) = server.csrf_token {
-                req_builder = req_builder.header("X-Codeium-Csrf-Token", csrf);
-            }
-            let resp = req_builder.json(body).send().await?;
-            if resp.status().is_success() {
-                let val = resp.json::<Value>().await?;
-                Ok(val)
-            } else {
-                bail!("request failed with status {}", resp.status())
-            }
+            bail!("request failed with status {}", resp.status())
         }
+    }
+
+    pub async fn post_grpc_json(
+        &self,
+        server: &LocalServer,
+        method: &str,
+        body: &Value,
+    ) -> Result<Value> {
+        if let Ok(val) = Self::try_post_grpc_json(&self.client, "http", server, method, body).await {
+            return Ok(val);
+        }
+        // Try https fallback
+        Self::try_post_grpc_json(&self.client, "https", server, method, body).await
     }
 
     async fn find_server(&self) -> Option<LocalServer> {
@@ -144,10 +138,6 @@ impl AntigravityProvider {
         let ps_out = String::from_utf8_lossy(&output.stdout);
         for line in ps_out.lines() {
             let trimmed = line.trim();
-            if !trimmed.contains("language_server") || !trimmed.contains("antigravity") {
-                continue;
-            }
-
             let parts: Vec<&str> = trimmed.split_whitespace().collect();
             let Some(pid_str) = parts.first() else {
                 continue;
@@ -155,6 +145,19 @@ impl AntigravityProvider {
             let Ok(pid) = pid_str.parse::<u32>() else {
                 continue;
             };
+
+            let cmd_lower = trimmed.to_lowercase();
+            let is_match = (cmd_lower.contains("language_server")
+                && cmd_lower.contains("antigravity"))
+                || cmd_lower.contains("antigravity")
+                || parts.iter().any(|arg| {
+                    let p = std::path::Path::new(arg);
+                    p.file_name().and_then(|f| f.to_str()) == Some("agy")
+                });
+
+            if !is_match {
+                continue;
+            }
 
             // The real process passes `--csrf_token <value>` as two separate
             // argv entries, not `--csrf_token=<value>`; handle both forms.
@@ -236,28 +239,11 @@ impl UsageProvider for AntigravityProvider {
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
             plan_type = status_val
-                .pointer("/userStatus/planType")
+                .pointer("/userTier/name")
+                .or_else(|| status_val.pointer("/userStatus/planType"))
+                .or_else(|| status_val.pointer("/userTier/id"))
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
-        }
-
-        if let Some(ref obs_email) = observed_email {
-            if !obs_email.eq_ignore_ascii_case(&account.email) {
-                return UsageSnapshot {
-                    account_id: account.id.clone(),
-                    provider: ProviderName::Antigravity,
-                    configured_email: account.email.clone(),
-                    observed_email: Some(obs_email.clone()),
-                    status: AccountStatus::Unavailable,
-                    error_code: ErrorCode::IdentityMismatch,
-                    message: Some(format!("Expected {}, found {}", account.email, obs_email)),
-                    source: "antigravity_local_server".to_string(),
-                    plan_type,
-                    observed_at: Some(retrieved_at),
-                    retrieved_at: Some(retrieved_at),
-                    windows: vec![],
-                };
-            }
         }
 
         let quota_doc = match self

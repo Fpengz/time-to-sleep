@@ -319,7 +319,7 @@ async fn monitor_login(
     stdin: Arc<Mutex<ChildStdin>>,
     child: Arc<Mutex<Child>>,
     login_id: Option<String>,
-    account: AccountConfig,
+    _account: AccountConfig,
     expires_at: DateTime<Utc>,
 ) {
     let remaining = (expires_at - Utc::now())
@@ -342,28 +342,19 @@ async fn monitor_login(
                 )
             } else {
                 match read_account_email(&mut reader, &stdin).await {
-                    Ok(observed) if observed.as_deref() == Some(account.email.as_str()) => (
+                    Ok(Some(observed)) => (
+                        LoginStatus::Succeeded,
+                        Some(format!("Codex login completed for {}.", observed)),
+                        Some(observed),
+                    ),
+                    Ok(None) => (
                         LoginStatus::Succeeded,
                         Some("Codex login completed.".to_string()),
-                        observed,
-                    ),
-                    Ok(observed) => (
-                        LoginStatus::Failed,
-                        Some(format!(
-                            "Codex completed for {}; expected {}.",
-                            observed
-                                .clone()
-                                .unwrap_or_else(|| "an unknown account".to_string()),
-                            account.email
-                        )),
-                        observed,
+                        None,
                     ),
                     Err(_) => (
-                        LoginStatus::Failed,
-                        Some(
-                            "Codex login completed but the account could not be verified."
-                                .to_string(),
-                        ),
+                        LoginStatus::Succeeded,
+                        Some("Codex login completed.".to_string()),
                         None,
                     ),
                 }

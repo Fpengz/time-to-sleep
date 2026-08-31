@@ -1,14 +1,14 @@
 [[accounts]]
-id = "codex-primary"
+id = "codex-1"
 provider = "codex"
-email = "wzf5350@gmail.com"
-home = "~/.codex"
+email = "codex-1"
+home = "~/.config/time-to-sleep/accounts/codex-1"
 
 [[accounts]]
-id = "codex-secondary"
+id = "codex-2"
 provider = "codex"
-email = "wzf0513@gmail.com"
-home = "~/.config/time-to-sleep/accounts/codex-secondary"
+email = "codex-2"
+home = "~/.config/time-to-sleep/accounts/codex-2"
 
 [[accounts]]
 id = "claude"
