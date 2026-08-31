@@ -152,6 +152,53 @@ async fn test_event_broadcaster_preserves_event_type_and_json_data() {
 }
 
 #[tokio::test]
+async fn test_history_query_rejects_invalid_ranges() {
+    for uri in ["/v1/history?hours=0", "/v1/history?hours=721"] {
+        let response = build_test_app()
+            .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{uri}");
+    }
+}
+
+#[tokio::test]
+async fn test_heatmap_query_rejects_invalid_ranges() {
+    for uri in ["/v1/analytics/heatmap?days=0", "/v1/analytics/heatmap?days=31"] {
+        let response = build_test_app()
+            .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{uri}");
+    }
+}
+
+#[tokio::test]
+async fn test_history_queries_accept_supported_ranges() {
+    let history_response = build_test_app()
+        .oneshot(
+            Request::builder()
+                .uri("/v1/history?hours=24")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(history_response.status(), StatusCode::OK);
+
+    let heatmap_response = build_test_app()
+        .oneshot(
+            Request::builder()
+                .uri("/v1/analytics/heatmap?days=7")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(heatmap_response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
 async fn test_api_settings_get_and_post() {
     let app = build_test_app();
 
