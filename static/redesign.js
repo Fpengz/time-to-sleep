@@ -41,15 +41,7 @@
     const candidates = state.snapshots
       .filter((snapshot) => snapshot.status === "live" && Number.isFinite(pressureFor(snapshot)))
       .sort((a, b) => pressureFor(a) - pressureFor(b));
-    if (candidates.length) return candidates[0];
-
-    const readable = state.snapshots
-      .filter((snapshot) => Number.isFinite(pressureFor(snapshot)))
-      .sort((a, b) => {
-        const statusDiff = statusRank(a.status) - statusRank(b.status);
-        return statusDiff || pressureFor(a) - pressureFor(b);
-      });
-    return readable[0] || state.snapshots[0];
+    return candidates[0] || null;
   }
 
   function earliestResetFor(snapshot) {
@@ -121,7 +113,7 @@
       ? `${formatPercent(pressure)} used · ${statusLabel(focus.status)}`
       : state.loading
         ? "syncing providers"
-        : "no quota reading";
+        : "no live reading";
 
     append(
       center,
@@ -149,9 +141,10 @@
       return;
     }
 
-    if (!focus || !Number.isFinite(pressureFor(focus))) {
-      title.textContent = "Reconnect an account before you start.";
-      copy.textContent = issue || "None of the configured accounts currently has a readable quota window.";
+    if (!focus) {
+      title.textContent = "No live account is ready.";
+      copy.textContent = issue
+        || "Cached and stale readings remain visible below, but Time-to-Sleep will not recommend one until a provider reports live quota data. Refresh or reconnect an account before switching.";
       renderHeroGauge(select("#hero-gauge"));
       return;
     }
@@ -201,7 +194,7 @@
       {
         label: "Best option",
         value: focus ? accountLabel(focus) : "—",
-        detail: focusPressure === null ? "no readable window" : `${formatPercent(Math.max(0, 100 - focusPressure))} headroom`,
+        detail: focusPressure === null ? "no live readable account" : `${formatPercent(Math.max(0, 100 - focusPressure))} headroom`,
       },
       {
         label: "Fleet peak",
