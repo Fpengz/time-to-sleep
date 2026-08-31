@@ -3,9 +3,9 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta id="theme-color" name="theme-color" content="#0f1413">
-    <title>Time-to-Sleep · Usage observatory</title>
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23101615'/%3E%3Cpath d='M8 9h16v3H8zm0 6h10v3H8zm0 6h16v3H8z' fill='%23d6f66c'/%3E%3C/svg%3E">
+    <meta id="theme-color" name="theme-color" content="#0b0d0c">
+    <title>Time-to-Sleep · Quota command center</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b0d0c'/%3E%3Cpath d='M9 8h14v3H9zm0 6h9v3H9zm0 6h14v3H9z' fill='%23b7f36b'/%3E%3C/svg%3E">
     <script>
       (() => {
         const saved = localStorage.getItem("time-to-sleep-theme");
@@ -14,61 +14,92 @@
       })();
     </script>
     <link rel="stylesheet" href="/static/styles.css">
+    <link rel="stylesheet" href="/static/redesign.css">
   </head>
   <body>
-    <div class="app-shell">
+    <div class="app-shell command-shell">
       <a class="skip-link" href="#main-content">Skip to main content</a>
-      <header class="site-header">
+
+      <header class="site-header command-header">
         <div class="header-left">
-          <a class="brand" href="#ledger" aria-label="Time-to-Sleep home">
+          <a class="brand" href="#overview" aria-label="Time-to-Sleep home">
             <span class="brand-mark" aria-hidden="true">TS</span>
-            <span>time-to-sleep</span>
+            <span class="brand-copy">
+              <strong>time-to-sleep</strong>
+              <small>local quota monitor</small>
+            </span>
           </a>
-          <nav class="site-nav" aria-label="Views">
-            <button id="tab-ledger-btn" class="nav-tab active" type="button">Ledger</button>
-            <button id="tab-trends-btn" class="nav-tab" type="button">Trends & Sparklines</button>
+
+          <nav class="site-nav command-nav" aria-label="Views">
+            <button id="tab-ledger-btn" class="nav-tab active" type="button">Overview</button>
+            <button id="tab-trends-btn" class="nav-tab" type="button">History</button>
           </nav>
         </div>
-        <div class="header-actions">
-          <time id="last-updated">Waiting for first sync</time>
-          <button id="discover-btn" class="button button-secondary" type="button" title="Auto-discover accounts on disk">🔍 Discover</button>
-          <button id="manage-accounts-btn" class="button button-secondary" type="button">Manage Accounts</button>
-          <button id="preferences-btn" class="button button-secondary" type="button">⚙ Preferences</button>
-          <button id="theme-toggle" class="icon-button" type="button" aria-label="Switch color theme">
+
+        <div class="header-actions command-actions">
+          <time id="last-updated" class="sync-status">Waiting for first sync</time>
+          <button id="refresh-button" class="button button-action refresh-primary" type="button">Refresh</button>
+          <button id="theme-toggle" class="icon-button" type="button" aria-label="Switch color theme" title="Switch color theme">
             <span aria-hidden="true">◐</span>
           </button>
-          <button id="refresh-button" class="button button-secondary" type="button">Refresh usage</button>
+
+          <details class="utility-menu">
+            <summary class="icon-button utility-trigger" aria-label="Open dashboard actions" title="Dashboard actions">•••</summary>
+            <div class="utility-popover" role="menu">
+              <p class="utility-label">Workspace</p>
+              <button id="manage-accounts-btn" class="utility-action" type="button" role="menuitem">
+                <span aria-hidden="true">＋</span>
+                <span><strong>Add account</strong><small>Track another provider login</small></span>
+              </button>
+              <button id="discover-btn" class="utility-action" type="button" role="menuitem">
+                <span aria-hidden="true">⌕</span>
+                <span><strong>Discover accounts</strong><small>Scan local provider configs</small></span>
+              </button>
+              <button id="preferences-btn" class="utility-action" type="button" role="menuitem">
+                <span aria-hidden="true">⚙</span>
+                <span><strong>Preferences</strong><small>Polling and cache settings</small></span>
+              </button>
+            </div>
+          </details>
         </div>
       </header>
 
       <main id="main-content">
         <p id="live-announcement" class="sr-only" aria-live="polite"></p>
 
-        <!-- VIEW 1: LEDGER (Overview) -->
-        <div id="view-ledger" class="page-view active">
-          <section class="hero" id="hero" aria-label="Fleet overview">
-            <div class="hero-copy-block">
-              <p class="eyebrow">Usage observatory</p>
-              <h1 id="page-title" class="page-title">Reading the sky<br><em>over your quota.</em></h1>
-              <p id="hero-copy" class="hero-copy">Listening for the first provider sync…</p>
+        <div id="view-ledger" class="page-view active" data-view="overview">
+          <section class="hero decision-panel" id="hero" aria-label="Recommended account">
+            <div class="hero-copy-block decision-copy">
+              <p class="eyebrow">Recommended now</p>
+              <h1 id="page-title" class="page-title">Finding the safest account…</h1>
+              <p id="hero-copy" class="hero-copy">Time-to-Sleep is comparing the quota pressure across your configured providers.</p>
+              <div class="decision-hint" aria-hidden="true">
+                <span class="decision-hint-key">R</span>
+                <span>refresh usage</span>
+              </div>
             </div>
-            <div class="hero-gauge" id="hero-gauge" aria-hidden="true"></div>
+            <div class="decision-gauge-wrap">
+              <div class="decision-gauge-label">Available headroom</div>
+              <div class="hero-gauge" id="hero-gauge" aria-hidden="true"></div>
+            </div>
           </section>
 
-          <section id="summary" class="signal-strip" aria-label="Usage summary"></section>
+          <section id="summary" class="signal-strip command-summary" aria-label="Fleet summary"></section>
 
           <section id="provider-ledger" class="accounts-section" aria-labelledby="accounts-title">
-            <div class="section-heading">
+            <div class="section-heading command-section-heading">
               <div>
-                <p class="eyebrow">Provider ledger</p>
-                <h2 id="accounts-title">The accounts</h2>
+                <p class="eyebrow">Accounts</p>
+                <h2 id="accounts-title">Quota pressure</h2>
+                <p class="section-lede">Best options appear first. Open History when you need the longer trend.</p>
               </div>
               <div class="heading-actions">
-                <span class="section-caption">Normalized usage windows</span>
-                <button id="view-all-trends-btn" class="button button-secondary button-sm" type="button">View All Trends ↗</button>
+                <span class="section-caption">Live provider windows</span>
+                <button id="view-all-trends-btn" class="button button-secondary button-sm" type="button">Open history →</button>
               </div>
             </div>
-            <section id="account-list" class="account-list" aria-label="Provider usage">
+
+            <section id="account-list" class="account-list command-account-list" aria-label="Provider usage">
               <div class="loading-state" role="status" aria-label="Loading provider usage">
                 <span class="loading-line"></span>
                 <span class="loading-line short"></span>
@@ -80,65 +111,62 @@
           <section id="setup-panel" class="setup-panel" hidden aria-live="polite" aria-labelledby="setup-title"></section>
         </div>
 
-        <!-- VIEW 2: TRENDS & SPARKLINES (Dedicated Analytics Page) -->
-        <div id="view-trends" class="page-view" hidden>
-          <section class="trends-hero-header">
+        <div id="view-trends" class="page-view" data-view="history" hidden>
+          <section class="trends-hero-header history-header">
             <div>
-              <p class="eyebrow">Usage observatory · Analytics</p>
-              <h1 class="page-title">Trends & Sparklines</h1>
-              <p class="page-subtitle">Full-resolution historical trajectories, consumption velocity, and multi-range pattern breakdown.</p>
+              <p class="eyebrow">History</p>
+              <h1 class="page-title">Quota pressure over time</h1>
+              <p class="page-subtitle">Compare accounts, inspect reset patterns, and export the underlying observations without crowding the day-to-day overview.</p>
             </div>
-            <div class="trends-hero-controls">
+            <div class="trends-hero-controls history-controls">
               <div class="global-range-picker" role="group" aria-label="Historical time range">
-                <button type="button" class="range-pill active" data-hours="24">24 Hours</button>
-                <button type="button" class="range-pill" data-hours="168">7 Days</button>
-                <button type="button" class="range-pill" data-hours="720">30 Days</button>
+                <button type="button" class="range-pill active" data-hours="24">24h</button>
+                <button type="button" class="range-pill" data-hours="168">7d</button>
+                <button type="button" class="range-pill" data-hours="720">30d</button>
               </div>
               <button id="export-csv-btn" class="button button-secondary" type="button">Export CSV</button>
             </div>
           </section>
 
-          <!-- Macro Comparative Timeline -->
-          <section id="macro-trends-card" class="macro-trends-card" aria-labelledby="macro-trends-title">
+          <section id="macro-trends-card" class="macro-trends-card history-primary-card" aria-labelledby="macro-trends-title">
             <div class="card-header-bar">
               <div>
-                <h3 id="macro-trends-title" class="card-subhead">Multi-Account Trajectory Comparison</h3>
-                <span class="card-caption">Normalized quota percentage timeline</span>
+                <p class="eyebrow">Comparison</p>
+                <h3 id="macro-trends-title" class="card-subhead">All active quota windows</h3>
+                <span class="card-caption">Normalized used percentage across the selected range</span>
               </div>
               <div id="macro-legend" class="macro-legend"></div>
             </div>
             <div id="macro-chart-container" class="macro-chart-container"></div>
           </section>
 
-          <!-- Account Sparkline Grid -->
-          <section class="trends-section" aria-labelledby="detail-trends-title">
-            <div class="section-heading">
+          <section class="trends-section history-detail-section" aria-labelledby="detail-trends-title">
+            <div class="section-heading command-section-heading">
               <div>
-                <p class="eyebrow">Account Breakdown</p>
-                <h2 id="detail-trends-title">Individual Sparkline Observatories</h2>
+                <p class="eyebrow">Account detail</p>
+                <h2 id="detail-trends-title">Individual trajectories</h2>
               </div>
             </div>
             <div id="trends-cards-grid" class="trends-cards-grid"></div>
           </section>
 
-          <!-- Hourly Heatmap Pattern Breakdown -->
-          <section id="heatmap-section" class="heatmap-card" aria-label="Usage patterns and peak hours"></section>
+          <section id="heatmap-section" class="heatmap-card" aria-label="Recorded quota levels by hour"></section>
 
-          <!-- History Data Table Log -->
           <section class="history-table-section">
             <details class="history-table-details">
               <summary class="history-table-summary">
-                <span>View Raw Observation Log (<span id="history-log-count">0</span> records)</span>
+                <span>Raw observations <span class="history-count">(<span id="history-log-count">0</span>)</span></span>
+                <span class="history-summary-hint">Show table</span>
               </summary>
               <div class="table-scroll-wrap">
                 <table class="history-data-table">
                   <thead>
                     <tr>
-                      <th>Observed At (UTC)</th>
+                      <th>Observed at</th>
                       <th>Account</th>
                       <th>Provider</th>
                       <th>Window</th>
-                      <th>Used %</th>
+                      <th>Used</th>
                     </tr>
                   </thead>
                   <tbody id="history-table-body">
@@ -150,33 +178,38 @@
           </section>
         </div>
 
-        <!-- Discovery Modal -->
-        <dialog id="discover-modal" class="account-modal" aria-labelledby="discover-title">
+        <dialog id="discover-modal" class="account-modal command-dialog" aria-labelledby="discover-title">
           <div class="modal-content">
             <div class="modal-header">
-              <h3 id="discover-title">Auto-Discovered Accounts</h3>
+              <div>
+                <p class="eyebrow">Local scan</p>
+                <h3 id="discover-title">Discover accounts</h3>
+              </div>
               <button type="button" id="discover-close-btn" class="icon-button modal-close" aria-label="Close">✕</button>
             </div>
-            <p class="setup-copy">We detected the following AI assistant configurations on your machine:</p>
+            <p class="setup-copy">Import provider configurations already present on this machine.</p>
             <div id="discover-list" class="discover-list"></div>
             <div class="modal-actions">
               <button type="button" id="discover-cancel-btn" class="button button-secondary">Cancel</button>
-              <button type="button" id="discover-import-all-btn" class="button button-action">Import All</button>
+              <button type="button" id="discover-import-all-btn" class="button button-action">Import all</button>
             </div>
           </div>
         </dialog>
 
-        <!-- Account Modal -->
-        <dialog id="account-modal" class="account-modal" aria-labelledby="modal-title">
+        <dialog id="account-modal" class="account-modal command-dialog" aria-labelledby="modal-title">
           <div class="modal-content">
             <div class="modal-header">
-              <h3 id="modal-title">Account Configuration</h3>
+              <div>
+                <p class="eyebrow">Tracking</p>
+                <h3 id="modal-title">Add account</h3>
+              </div>
               <button type="button" id="modal-close-btn" class="icon-button modal-close" aria-label="Close">✕</button>
             </div>
             <form id="account-form">
               <div class="form-group">
                 <label for="acc-id">Account ID</label>
-                <input type="text" id="acc-id" required placeholder="e.g. codex-primary">
+                <input type="text" id="acc-id" required placeholder="codex-primary">
+                <small class="field-help">Stable local name used by history and analytics.</small>
               </div>
               <div class="form-group">
                 <label for="acc-provider">Provider</label>
@@ -191,84 +224,115 @@
                 <input type="email" id="acc-email" required placeholder="developer@example.com">
               </div>
               <div class="form-group">
-                <label for="acc-home">Home Directory</label>
+                <label for="acc-home">Provider home</label>
                 <input type="text" id="acc-home" required placeholder="~/.codex or custom path">
               </div>
-              <div class="form-row">
-                <div class="form-group">
-                  <label for="acc-warning">Warning (%)</label>
-                  <input type="number" id="acc-warning" min="1" max="100" value="80" required>
+
+              <fieldset class="form-fieldset">
+                <legend>Alerts</legend>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="acc-warning">Warning</label>
+                    <div class="number-with-unit">
+                      <input type="number" id="acc-warning" min="1" max="100" value="80" required>
+                      <span>%</span>
+                    </div>
+                  </div>
+                  <div class="form-group">
+                    <label for="acc-critical">Critical</label>
+                    <div class="number-with-unit">
+                      <input type="number" id="acc-critical" min="1" max="100" value="95" required>
+                      <span>%</span>
+                    </div>
+                  </div>
                 </div>
-                <div class="form-group">
-                  <label for="acc-critical">Critical (%)</label>
-                  <input type="number" id="acc-critical" min="1" max="100" value="95" required>
-                </div>
-              </div>
-              <div class="form-group checkbox-group" style="display: flex; align-items: center; gap: 8px; margin-top: 8px;">
-                <input type="checkbox" id="acc-auto-retrieval" checked style="width: auto; margin: 0;">
-                <label for="acc-auto-retrieval" style="margin: 0; font-size: 0.85rem; cursor: pointer;">Auto-retrieve usage in background</label>
-              </div>
+              </fieldset>
+
+              <label class="check-row" for="acc-auto-retrieval">
+                <input type="checkbox" id="acc-auto-retrieval" checked>
+                <span><strong>Background retrieval</strong><small>Allow Time-to-Sleep to refresh this account automatically.</small></span>
+              </label>
+
               <div class="modal-actions">
                 <button type="button" id="modal-cancel-btn" class="button button-secondary">Cancel</button>
-                <button type="submit" class="button button-action">Save Account</button>
+                <button type="submit" class="button button-action">Save account</button>
               </div>
             </form>
           </div>
         </dialog>
 
-        <!-- Preferences Modal -->
-        <dialog id="preferences-modal" class="account-modal" aria-labelledby="prefs-title">
-          <div class="modal-content">
+        <dialog id="preferences-modal" class="account-modal command-dialog" aria-labelledby="prefs-title">
+          <div class="modal-content modal-content-wide">
             <div class="modal-header">
-              <h3 id="prefs-title">Preferences</h3>
+              <div>
+                <p class="eyebrow">Runtime</p>
+                <h3 id="prefs-title">Retrieval preferences</h3>
+              </div>
               <button type="button" id="prefs-close-btn" class="icon-button modal-close" aria-label="Close">✕</button>
             </div>
             <form id="preferences-form">
-              <div class="form-group checkbox-group" style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
-                <input type="checkbox" id="prefs-auto-enabled" checked style="width: auto; margin: 0;">
-                <label for="prefs-auto-enabled" style="margin: 0; font-weight: 600; cursor: pointer;">Enable Background Auto-Retrieval</label>
-              </div>
+              <label class="check-row" for="prefs-auto-enabled">
+                <input type="checkbox" id="prefs-auto-enabled" checked>
+                <span><strong>Background auto-retrieval</strong><small>Keep quota readings fresh without manual refreshes.</small></span>
+              </label>
+
               <div class="form-group">
-                <label for="prefs-poll-interval">Poll Interval</label>
+                <label for="prefs-poll-interval">Poll interval</label>
                 <select id="prefs-poll-interval">
-                  <option value="30">30 seconds (Aggressive)</option>
-                  <option value="60">1 minute (Default)</option>
+                  <option value="30">30 seconds · aggressive</option>
+                  <option value="60">1 minute · default</option>
                   <option value="120">2 minutes</option>
-                  <option value="300">5 minutes (Recommended for Claude)</option>
+                  <option value="300">5 minutes</option>
                   <option value="600">10 minutes</option>
                   <option value="900">15 minutes</option>
                   <option value="1800">30 minutes</option>
                 </select>
               </div>
-              <div class="form-row">
-                <div class="form-group">
-                  <label for="prefs-codex-ttl">Codex TTL (s)</label>
-                  <input type="number" id="prefs-codex-ttl" min="10" value="180" required>
+
+              <fieldset class="form-fieldset">
+                <legend>Provider cache TTL</legend>
+                <div class="form-row form-row-three">
+                  <div class="form-group">
+                    <label for="prefs-codex-ttl">Codex</label>
+                    <div class="number-with-unit">
+                      <input type="number" id="prefs-codex-ttl" min="10" value="180" required>
+                      <span>s</span>
+                    </div>
+                  </div>
+                  <div class="form-group">
+                    <label for="prefs-claude-ttl">Claude</label>
+                    <div class="number-with-unit">
+                      <input type="number" id="prefs-claude-ttl" min="10" value="300" required>
+                      <span>s</span>
+                    </div>
+                  </div>
+                  <div class="form-group">
+                    <label for="prefs-antigravity-ttl">Antigravity</label>
+                    <div class="number-with-unit">
+                      <input type="number" id="prefs-antigravity-ttl" min="10" value="90" required>
+                      <span>s</span>
+                    </div>
+                  </div>
                 </div>
-                <div class="form-group">
-                  <label for="prefs-claude-ttl">Claude TTL (s)</label>
-                  <input type="number" id="prefs-claude-ttl" min="10" value="300" required>
-                </div>
-                <div class="form-group">
-                  <label for="prefs-antigravity-ttl">AGY TTL (s)</label>
-                  <input type="number" id="prefs-antigravity-ttl" min="10" value="90" required>
-                </div>
-              </div>
+              </fieldset>
+
               <div class="modal-actions">
                 <button type="button" id="prefs-cancel-btn" class="button button-secondary">Cancel</button>
-                <button type="submit" class="button button-action">Save Preferences</button>
+                <button type="submit" class="button button-action">Save preferences</button>
               </div>
             </form>
           </div>
         </dialog>
       </main>
 
-      <footer class="site-footer">
+      <footer class="site-footer command-footer">
         <span>Time-to-Sleep</span>
-        <span>Rust backend · local usage retrieval</span>
+        <span>Local-first · Rust · SQLite</span>
       </footer>
     </div>
+
     <script src="/static/app.js" defer></script>
     <script src="/static/runtime-fixes.js" defer></script>
+    <script src="/static/redesign.js" defer></script>
   </body>
 </html>
