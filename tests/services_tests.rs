@@ -90,6 +90,7 @@ fn test_analytics_service_smart_routing() {
                 home: "/tmp".into(),
                 priority: 0,
                 warning_threshold: 80.0,
+                critical_threshold: 95.0,
                 auto_retrieval: true,
             },
             AccountConfig {
@@ -99,6 +100,7 @@ fn test_analytics_service_smart_routing() {
                 home: "/tmp".into(),
                 priority: 0,
                 warning_threshold: 80.0,
+                critical_threshold: 95.0,
                 auto_retrieval: true,
             },
         ],
