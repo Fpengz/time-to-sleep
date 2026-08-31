@@ -21,15 +21,15 @@ enum Palette {
     static let codex = Color(hex: 0x38AECB)
     static let codexSecondary = Color(hex: 0x7B78E0)
     static let claude = Color(hex: 0xE08A45)
-    static let antigravity = Color(hex: 0x8FB02E)
+    static let antigravity = Color(hex: 0xD6F66C)
 
     static let live = Color(hex: 0x53A867)
     static let warn = Color(hex: 0xD08A3C)
     static let danger = Color(hex: 0xD05A50)
 
     static func provider(_ provider: String, id: String) -> Color {
-        switch provider {
-        case "codex": return id.contains("secondary") ? codexSecondary : codex
+        switch provider.lowercased() {
+        case "codex": return (id.contains("secondary") || id.contains("-2")) ? codexSecondary : codex
         case "claude": return claude
         case "antigravity": return antigravity
         default: return accent
@@ -419,7 +419,7 @@ struct SparklineView: View {
                     .stroke(color, style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
                 }
             }
-            .frame(height: 26)
+            .frame(height: 20)
         }
     }
 }
@@ -451,9 +451,6 @@ struct AccountView: View {
                             windowRow(window)
                         }
                     }
-                }
-                if !history.isEmpty {
-                    SparklineView(points: history, color: accentColor)
                 }
                 if let message = account.message {
                     Text(message)
@@ -497,7 +494,7 @@ struct AccountView: View {
                             .foregroundColor(.secondary)
                     }
                 }
-                if let email = account.configured_email {
+                if let email = account.displayEmail {
                     Text(email)
                         .font(.system(size: 10.5))
                         .foregroundColor(.secondary)
@@ -519,6 +516,8 @@ struct AccountView: View {
         // Provider hue while healthy; escalate to warn/danger as usage climbs — mirrors the web meters.
         let meterColor = window.used_percent >= 75 ? Palette.usage(window.used_percent) : accentColor
         let color = Palette.usage(window.used_percent)
+        let windowHistory = history.filter { $0.window_id == window.id }
+
         return VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline) {
                 Text(formatWindowId(window.id))
@@ -553,6 +552,9 @@ struct AccountView: View {
                     }
                 }
             }
+            if windowHistory.count >= 2 {
+                SparklineView(points: windowHistory, color: accentColor)
+            }
         }
     }
 
@@ -563,9 +565,14 @@ struct AccountView: View {
     }
 
     private var accountDisplayName: String {
-        if account.account_id == "codex-primary" { return "Codex · Primary" }
-        if account.account_id == "codex-secondary" { return "Codex · Second" }
-        switch account.provider {
+        switch account.provider.lowercased() {
+        case "codex":
+            let id = account.account_id
+            if id == "codex-1" || id == "codex-primary" { return "Codex · 1" }
+            if id == "codex-2" || id == "codex-secondary" { return "Codex · 2" }
+            if id == "codex" { return "Codex" }
+            let suffix = id.hasPrefix("codex-") ? String(id.dropFirst(6)) : id
+            return "Codex · \(suffix.capitalized)"
         case "claude": return "Claude Code"
         case "antigravity": return "Antigravity"
         default: return account.provider.capitalized

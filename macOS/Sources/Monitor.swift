@@ -7,12 +7,12 @@ class UsageMonitor: ObservableObject {
     @Published var accounts: [Account] = []
     @Published var accountHistory: [String: [HistoryPointModel]] = [:]
     @Published var needsAttention: Bool = false
+    @Published var autoRetrieval: AutoRetrievalConfig = AutoRetrievalConfig()
     @Published var lastFetchError: String? = nil
     @Published var isRefreshing: Bool = false
     /// Set by the menu bar popover on appear/disappear. The 24h history query is only
     /// needed while the popover's sparklines are on screen, so we skip fetching and
-    /// decoding it on every 60s background tick otherwise — it's the most expensive
-    /// part of each poll (full SQLite scan + JSON payload) for a view nobody sees.
+    /// decoding it on every background tick otherwise.
     var popoverVisible: Bool = false
 
     private var timer: Timer?
@@ -34,14 +34,41 @@ class UsageMonitor: ObservableObject {
     
     init() {
         requestNotificationPermission()
-        Task { await fetchUsage() }
-        let t = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+        Task {
+            await fetchSettings()
+            await fetchUsage()
+        }
+        setupTimer(interval: autoRetrieval.poll_interval_secs, enabled: autoRetrieval.enabled)
+    }
+    
+    func setupTimer(interval: Int, enabled: Bool) {
+        timer?.invalidate()
+        timer = nil
+        guard enabled, interval > 0 else { return }
+        
+        let t = Timer.scheduledTimer(withTimeInterval: TimeInterval(interval), repeats: true) { [weak self] _ in
             Task { @MainActor in
                 await self?.fetchUsage()
             }
         }
-        t.tolerance = 10.0
+        t.tolerance = Double(interval) * 0.1
         self.timer = t
+    }
+    
+    func fetchSettings() async {
+        let port = getPort()
+        guard let url = URL(string: "http://127.0.0.1:\(port)/v1/settings") else { return }
+        guard let (data, resp) = try? await URLSession.shared.data(from: url),
+              let http = resp as? HTTPURLResponse, http.statusCode == 200,
+              let settings = try? Self.jsonDecoder.decode(SettingsModel.self, from: data) else {
+            return
+        }
+        let intervalChanged = self.autoRetrieval.poll_interval_secs != settings.auto_retrieval.poll_interval_secs
+        let enabledChanged = self.autoRetrieval.enabled != settings.auto_retrieval.enabled
+        self.autoRetrieval = settings.auto_retrieval
+        if intervalChanged || enabledChanged || timer == nil {
+            self.setupTimer(interval: settings.auto_retrieval.poll_interval_secs, enabled: settings.auto_retrieval.enabled)
+        }
     }
     
     func requestNotificationPermission() {
@@ -76,6 +103,8 @@ class UsageMonitor: ObservableObject {
         isRefreshing = true
         defer { isRefreshing = false }
         
+        await fetchSettings()
+
         let port = getPort()
         let endpoint = forceRefresh ? "http://127.0.0.1:\(port)/v1/usage?force_refresh=true" : "http://127.0.0.1:\(port)/v1/usage"
         guard let url = URL(string: endpoint) else { return }
