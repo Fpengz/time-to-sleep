@@ -66,6 +66,7 @@ struct AccountConfigModel: Codable, Identifiable {
     var home: String
     var priority: Int?
     var warning_threshold: Double?
+    var critical_threshold: Double?
     var auto_retrieval: Bool?
 }
 
