@@ -1,23 +1,47 @@
+# Reference account configuration only.
+#
+# The current Rust runtime persists and loads JSON from:
+#   ~/.config/time-to-sleep/settings.json
+# (or $TIME_TO_SLEEP_CONFIG_DIR/settings.json).
+#
+# This TOML file is kept as a readable example and is not loaded by src/config.rs.
+
 [[accounts]]
 id = "codex-1"
 provider = "codex"
-email = "codex-1"
+email = "developer@example.com"
 home = "~/.config/time-to-sleep/accounts/codex-1"
+priority = 0
+warning_threshold = 80.0
+critical_threshold = 95.0
+auto_retrieval = true
 
 [[accounts]]
 id = "codex-2"
 provider = "codex"
-email = "codex-2"
+email = "developer+secondary@example.com"
 home = "~/.config/time-to-sleep/accounts/codex-2"
+priority = 0
+warning_threshold = 80.0
+critical_threshold = 95.0
+auto_retrieval = true
 
 [[accounts]]
 id = "claude"
 provider = "claude"
-email = "wzf5350@gmail.com"
+email = "developer@example.com"
 home = "~/.claude"
+priority = 0
+warning_threshold = 80.0
+critical_threshold = 95.0
+auto_retrieval = true
 
 [[accounts]]
 id = "antigravity"
 provider = "antigravity"
-email = "wzf5350@gmail.com"
+email = "developer@example.com"
 home = "~/.gemini/antigravity-cli"
+priority = 0
+warning_threshold = 80.0
+critical_threshold = 95.0
+auto_retrieval = true
