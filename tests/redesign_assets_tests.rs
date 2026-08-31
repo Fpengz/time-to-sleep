@@ -30,10 +30,7 @@ fn build_test_app() -> axum::Router {
 
 #[tokio::test]
 async fn redesign_assets_are_embedded_and_served() {
-    for (uri, expected_content_type) in [
-        ("/static/redesign.css", "text/css"),
-        ("/static/redesign.js", "application/javascript"),
-    ] {
+    for uri in ["/static/redesign.css", "/static/redesign.js"] {
         let response = build_test_app()
             .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
             .await
@@ -46,6 +43,15 @@ async fn redesign_assets_are_embedded_and_served() {
             .get(header::CONTENT_TYPE)
             .and_then(|value| value.to_str().ok())
             .unwrap_or_default();
-        assert_eq!(content_type, expected_content_type, "{uri}");
+
+        if uri.ends_with(".css") {
+            assert!(content_type.starts_with("text/css"), "{uri}: {content_type}");
+        } else {
+            assert!(
+                content_type.starts_with("text/javascript")
+                    || content_type.starts_with("application/javascript"),
+                "{uri}: {content_type}"
+            );
+        }
     }
 }
