@@ -1,5 +1,6 @@
 use axum::body::Body;
-use axum::http::{Request, StatusCode};
+use axum::http::{header, Request, StatusCode};
+use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use time_to_sleep::api::{create_router, AppState, EventBroadcaster};
@@ -85,6 +86,69 @@ async fn test_api_static_index() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_api_rejects_cross_origin_cors_access() {
+    let app = build_test_app();
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/v1/settings")
+                .header(header::ORIGIN, "https://evil.example")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(response
+        .headers()
+        .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+        .is_none());
+}
+
+#[tokio::test]
+async fn test_unknown_api_path_returns_json_404() {
+    let app = build_test_app();
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/v1/not-a-real-endpoint")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    let content_type = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    assert!(content_type.starts_with("application/json"));
+
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["detail"], "API endpoint not found");
+}
+
+#[tokio::test]
+async fn test_event_broadcaster_preserves_event_type_and_json_data() {
+    let broadcaster = EventBroadcaster::new();
+    let mut receiver = broadcaster.subscribe();
+    let payload = json!({"accounts": [], "generated_at": "2026-08-31T00:00:00Z"});
+
+    broadcaster.broadcast("usage", &payload);
+
+    let event = receiver.recv().await.unwrap();
+    assert_eq!(event.event_type, "usage");
+    let decoded: serde_json::Value = serde_json::from_str(&event.data).unwrap();
+    assert_eq!(decoded, payload);
 }
 
 #[tokio::test]
