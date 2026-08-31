@@ -640,7 +640,7 @@ mod tests {
 
         let service = LoginService::with_command(
             script_path.to_string_lossy().to_string(),
-            Duration::from_millis(100),
+            Duration::from_millis(500),
         );
         let settings = Settings {
             accounts: vec![AccountConfig {
@@ -662,11 +662,17 @@ mod tests {
             .expect_err("fake app-server should time out");
         assert!(error.to_string().contains("timed out"));
 
-        let pid: u32 = std::fs::read_to_string(&pid_path)
-            .unwrap()
-            .trim()
-            .parse()
-            .unwrap();
+        let mut pid_str = String::new();
+        for _ in 0..50 {
+            if let Ok(content) = std::fs::read_to_string(&pid_path) {
+                if !content.trim().is_empty() {
+                    pid_str = content;
+                    break;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        let pid: u32 = pid_str.trim().parse().expect("child PID should be written");
         let mut alive = true;
         for _ in 0..50 {
             alive = std::process::Command::new("kill")
