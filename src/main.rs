@@ -85,10 +85,17 @@ fn build_services() -> (Arc<UsageService>, Arc<AnalyticsService>, Arc<HistorySto
 
     let usage_service = Arc::new(UsageService::new(providers));
     let analytics_service = Arc::new(AnalyticsService::new());
-    let history_store = Arc::new(
-        HistoryStore::new(Some(&HistoryStore::default_path()))
-            .unwrap_or_else(|_| HistoryStore::new(None).unwrap()),
-    );
+    let history_path = HistoryStore::default_path();
+    let history_store = Arc::new(match HistoryStore::new(Some(&history_path)) {
+        Ok(store) => store,
+        Err(error) => {
+            eprintln!(
+                "warning: failed to open persistent history store at {}: {error:#}; falling back to in-memory history (data will not survive restart)",
+                history_path.display()
+            );
+            HistoryStore::new(None).expect("failed to create in-memory history store")
+        }
+    });
 
     (usage_service, analytics_service, history_store)
 }
