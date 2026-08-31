@@ -131,13 +131,19 @@ fn test_analytics_uses_history_for_current_limiting_window() {
 
     let first = test_snapshot(
         one_hour_ago,
-        vec![test_window("five_hour", 40.0), test_window("seven_day", 70.0)],
+        vec![
+            test_window("five_hour", 40.0),
+            test_window("seven_day", 70.0),
+        ],
     );
     analytics.analyze(&[first], None);
 
     let second = test_snapshot(
         now,
-        vec![test_window("five_hour", 75.0), test_window("seven_day", 71.0)],
+        vec![
+            test_window("five_hour", 75.0),
+            test_window("seven_day", 71.0),
+        ],
     );
     let result = analytics.analyze(&[second], None);
     let account = &result.accounts[0];
