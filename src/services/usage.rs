@@ -167,8 +167,8 @@ impl UsageService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use async_trait::async_trait;
     use crate::domain::{AccountConfig, AutoRetrievalSettings};
+    use async_trait::async_trait;
 
     struct PanicProvider;
 
