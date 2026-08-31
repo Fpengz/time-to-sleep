@@ -18,7 +18,6 @@ use tokio::sync::RwLock;
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
 use tower_http::compression::CompressionLayer;
-use tower_http::cors::{Any, CorsLayer};
 
 use super::sse::EventBroadcaster;
 use crate::config::save_settings;
@@ -169,14 +168,21 @@ pub async fn heatmap_handler(
 pub async fn events_handler(
     State(state): State<AppState>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    // Subscribe before collecting the initial state so updates emitted while the
+    // initial snapshot is being assembled cannot fall into a subscribe gap.
+    let rx = state.broadcaster.subscribe();
+
     let settings = state.settings.read().await.clone();
     let snapshots = state.usage_service.collect(&settings, false).await;
     let analytics_data = state.analytics_service.analyze(&snapshots, Some(&settings));
 
-    let rx = state.broadcaster.subscribe();
     let broadcast_stream = BroadcastStream::new(rx)
         .filter_map(|res| res.ok())
-        .map(|msg| Ok(Event::default().data(msg)));
+        .map(|msg| {
+            Ok(Event::default()
+                .event(msg.event_type)
+                .data(msg.data))
+        });
 
     let init_usage_event = Event::default().event("usage").data(
         json!({
@@ -393,6 +399,17 @@ pub async fn static_handler(
     headers: HeaderMap,
 ) -> Response {
     let raw = path.trim_start_matches('/');
+
+    // API typos should fail as API requests instead of falling through to the
+    // SPA index page with a misleading 200/html response.
+    if raw.starts_with("v1/") {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "detail": "API endpoint not found" })),
+        )
+            .into_response();
+    }
+
     let target = if raw.is_empty() {
         "index.html"
     } else if let Some(stripped) = raw.strip_prefix("static/") {
@@ -415,11 +432,6 @@ pub async fn index_handler(headers: HeaderMap) -> Response {
 }
 
 pub fn create_router(state: AppState) -> Router {
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
-
     Router::new()
         .route("/v1/usage", get(usage_handler))
         .route("/v1/analytics", get(analytics_handler))
@@ -452,7 +464,6 @@ pub fn create_router(state: AppState) -> Router {
         )
         .route("/", get(index_handler))
         .route("/{*path}", get(static_handler))
-        .layer(cors)
         .layer(CompressionLayer::new())
         .with_state(state)
 }
