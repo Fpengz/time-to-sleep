@@ -81,6 +81,12 @@
     return "var(--accent)";
   }
 
+  function quotaBarColor(percent) {
+    if (percent >= 90) return "var(--danger)";
+    if (percent >= 75) return "var(--warning)";
+    return "var(--provider)";
+  }
+
   updateThemeColor = function commandThemeColor(theme) {
     const meta = select('meta[name="theme-color"]');
     if (!meta) return;
@@ -237,6 +243,12 @@
     if (recBadge && !isLiveRecommended(snapshot)) {
       recBadge.remove();
     }
+
+    card.querySelectorAll(".meter-fill").forEach((fill, index) => {
+      const window = snapshot.windows?.[index];
+      if (!window) return;
+      fill.style.background = quotaBarColor(window.used_percent);
+    });
 
     const focus = chooseFocusAccount();
     if (focus?.account_id === snapshot.account_id) {
