@@ -24,13 +24,18 @@
     }[status] ?? 5;
   }
 
+  function isLiveRecommended(snapshot) {
+    return snapshot.status === "live"
+      && Boolean(analyticsFor(snapshot.account_id)?.recommended)
+      && Number.isFinite(pressureFor(snapshot));
+  }
+
   function chooseFocusAccount() {
     if (!state.snapshots?.length) return null;
 
-    const recommended = state.snapshots.find((snapshot) => {
-      const analytics = analyticsFor(snapshot.account_id);
-      return analytics?.recommended && snapshot.status === "live" && Number.isFinite(pressureFor(snapshot));
-    });
+    const recommended = state.snapshots
+      .filter(isLiveRecommended)
+      .sort((a, b) => pressureFor(a) - pressureFor(b))[0];
     if (recommended) return recommended;
 
     const candidates = state.snapshots
@@ -235,6 +240,11 @@
     const card = legacyRenderAccount(snapshot);
     card.dataset.accountId = snapshot.account_id;
 
+    const recBadge = card.querySelector(".rec-badge");
+    if (recBadge && !isLiveRecommended(snapshot)) {
+      recBadge.remove();
+    }
+
     const focus = chooseFocusAccount();
     if (focus?.account_id === snapshot.account_id) {
       card.classList.add("account-card-focus");
@@ -250,8 +260,8 @@
   renderAccounts = function commandAccounts() {
     const original = state.snapshots;
     state.snapshots = [...original].sort((a, b) => {
-      const aRecommended = analyticsFor(a.account_id)?.recommended ? 0 : 1;
-      const bRecommended = analyticsFor(b.account_id)?.recommended ? 0 : 1;
+      const aRecommended = isLiveRecommended(a) ? 0 : 1;
+      const bRecommended = isLiveRecommended(b) ? 0 : 1;
       if (aRecommended !== bRecommended) return aRecommended - bRecommended;
 
       const statusDiff = statusRank(a.status) - statusRank(b.status);
