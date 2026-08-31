@@ -77,6 +77,8 @@ pub struct AccountConfig {
     pub priority: i32,
     #[serde(default = "default_warning_threshold")]
     pub warning_threshold: f64,
+    #[serde(default = "default_critical_threshold")]
+    pub critical_threshold: f64,
     #[serde(default = "default_true")]
     pub auto_retrieval: bool,
 }
@@ -87,6 +89,10 @@ fn default_true() -> bool {
 
 fn default_warning_threshold() -> f64 {
     80.0
+}
+
+fn default_critical_threshold() -> f64 {
+    95.0
 }
 
 impl AccountConfig {
@@ -349,5 +355,14 @@ mod tests {
         let deserialized: UsageSnapshot = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.account_id, "codex-primary");
         assert_eq!(deserialized.windows[0].used_percent, 42.5);
+    }
+
+    #[test]
+    fn account_config_defaults_critical_threshold_for_old_configs() {
+        let config: AccountConfig = serde_json::from_str(
+            r#"{"id":"codex-primary","provider":"codex","email":"a@example.com","home":"~/.codex","warning_threshold":80}"#,
+        )
+        .unwrap();
+        assert_eq!(config.critical_threshold, 95.0);
     }
 }

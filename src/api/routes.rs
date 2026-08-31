@@ -1,5 +1,4 @@
 use std::convert::Infallible;
-use std::path::Path as FsPath;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -18,7 +17,6 @@ use tokio::sync::RwLock;
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
 use tower_http::compression::CompressionLayer;
-use tower_http::cors::{Any, CorsLayer};
 
 use super::sse::EventBroadcaster;
 use crate::config::save_settings;
@@ -29,6 +27,9 @@ use crate::domain::{
 };
 use crate::history::HistoryStore;
 use crate::services::{AnalyticsService, LoginError, LoginService, UsageService};
+
+const MAX_HISTORY_HOURS: i64 = 720;
+const MAX_HEATMAP_DAYS: i64 = 30;
 
 #[derive(RustEmbed)]
 #[folder = "static/"]
@@ -79,6 +80,32 @@ impl From<LoginError> for ApiError {
     }
 }
 
+async fn persist_settings(settings: Settings) -> Result<(), ApiError> {
+    tokio::task::spawn_blocking(move || save_settings(&settings))
+        .await
+        .map_err(|error| {
+            ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("settings persistence task failed: {error}"),
+            )
+        })?
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))
+}
+
+async fn discover_accounts_blocking(existing: Vec<String>) -> Result<Vec<AccountConfig>, ApiError> {
+    tokio::task::spawn_blocking(move || {
+        let existing_refs: Vec<&str> = existing.iter().map(String::as_str).collect();
+        discover_accounts(&existing_refs)
+    })
+    .await
+    .map_err(|error| {
+        ApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("account discovery task failed: {error}"),
+        )
+    })
+}
+
 #[derive(Deserialize)]
 pub struct UsageParams {
     #[serde(default)]
@@ -96,7 +123,19 @@ pub async fn usage_handler(
         .await;
     let analytics_data = state.analytics_service.analyze(&snapshots, Some(&settings));
 
-    let _ = state.history_store.record_snapshots(&snapshots);
+    let history_store = state.history_store.clone();
+    let history_snapshots = snapshots.clone();
+    match tokio::task::spawn_blocking(move || history_store.record_snapshots(&history_snapshots))
+        .await
+    {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => {
+            tracing::warn!(%error, "failed to persist usage history");
+        }
+        Err(error) => {
+            tracing::warn!(%error, "usage history persistence task failed");
+        }
+    }
 
     if state.broadcaster.has_subscribers() {
         let usage_payload = json!({
@@ -136,12 +175,36 @@ fn default_history_hours() -> i64 {
 pub async fn history_handler(
     State(state): State<AppState>,
     Query(params): Query<HistoryParams>,
-) -> Json<Vec<HistoryPoint>> {
-    let points = state
-        .history_store
-        .get_history(params.account_id.as_deref(), params.hours)
-        .unwrap_or_default();
-    Json(points)
+) -> Result<Json<Vec<HistoryPoint>>, ApiError> {
+    if !(1..=MAX_HISTORY_HOURS).contains(&params.hours) {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            format!("hours must be between 1 and {MAX_HISTORY_HOURS}"),
+        ));
+    }
+
+    let history_store = state.history_store.clone();
+    let account_id = params.account_id;
+    let hours = params.hours;
+    let points = tokio::task::spawn_blocking(move || {
+        history_store.get_history(account_id.as_deref(), hours)
+    })
+    .await
+    .map_err(|error| {
+        ApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("history query task failed: {error}"),
+        )
+    })?
+    .map_err(|error| {
+        tracing::error!(%error, "failed to query usage history");
+        ApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Failed to query usage history",
+        )
+    })?;
+
+    Ok(Json(points))
 }
 
 #[derive(Deserialize)]
@@ -158,25 +221,52 @@ fn default_heatmap_days() -> i64 {
 pub async fn heatmap_handler(
     State(state): State<AppState>,
     Query(params): Query<HeatmapParams>,
-) -> Json<Vec<HourlyUsageDistribution>> {
-    let heatmap = state
-        .history_store
-        .get_hourly_heatmap(params.account_id.as_deref(), params.days)
-        .unwrap_or_default();
-    Json(heatmap)
+) -> Result<Json<Vec<HourlyUsageDistribution>>, ApiError> {
+    if !(1..=MAX_HEATMAP_DAYS).contains(&params.days) {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            format!("days must be between 1 and {MAX_HEATMAP_DAYS}"),
+        ));
+    }
+
+    let history_store = state.history_store.clone();
+    let account_id = params.account_id;
+    let days = params.days;
+    let heatmap = tokio::task::spawn_blocking(move || {
+        history_store.get_hourly_heatmap(account_id.as_deref(), days)
+    })
+    .await
+    .map_err(|error| {
+        ApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("heatmap query task failed: {error}"),
+        )
+    })?
+    .map_err(|error| {
+        tracing::error!(%error, "failed to query hourly usage distribution");
+        ApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Failed to query hourly usage distribution",
+        )
+    })?;
+
+    Ok(Json(heatmap))
 }
 
 pub async fn events_handler(
     State(state): State<AppState>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    // Subscribe before collecting the initial state so updates emitted while the
+    // initial snapshot is being assembled cannot fall into a subscribe gap.
+    let rx = state.broadcaster.subscribe();
+
     let settings = state.settings.read().await.clone();
     let snapshots = state.usage_service.collect(&settings, false).await;
     let analytics_data = state.analytics_service.analyze(&snapshots, Some(&settings));
 
-    let rx = state.broadcaster.subscribe();
     let broadcast_stream = BroadcastStream::new(rx)
         .filter_map(|res| res.ok())
-        .map(|msg| Ok(Event::default().data(msg)));
+        .map(|msg| Ok(Event::default().event(msg.event_type).data(msg.data)));
 
     let init_usage_event = Event::default().event("usage").data(
         json!({
@@ -209,7 +299,7 @@ pub async fn accounts_handler(State(state): State<AppState>) -> Json<Vec<Account
         let cached = state.usage_service.get_cached(&account.id).await;
         let ready = match &cached {
             Some(snapshot) => snapshot.status != AccountStatus::Unavailable,
-            None => FsPath::new(&account.expanded_home()).exists(),
+            None => tokio::fs::metadata(account.expanded_home()).await.is_ok(),
         };
         views.push(AccountStatusView {
             account_id: account.id.clone(),
@@ -224,10 +314,12 @@ pub async fn accounts_handler(State(state): State<AppState>) -> Json<Vec<Account
     Json(views)
 }
 
-pub async fn discover_handler(State(state): State<AppState>) -> Json<Vec<AccountConfig>> {
+pub async fn discover_handler(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<AccountConfig>>, ApiError> {
     let settings = state.settings.read().await.clone();
-    let existing: Vec<&str> = settings.accounts.iter().map(|a| a.id.as_str()).collect();
-    Json(discover_accounts(&existing))
+    let existing = settings.accounts.iter().map(|a| a.id.clone()).collect();
+    Ok(Json(discover_accounts_blocking(existing).await?))
 }
 
 #[derive(Deserialize)]
@@ -240,21 +332,26 @@ pub async fn discover_apply_handler(
     State(state): State<AppState>,
     Json(req): Json<DiscoverApplyRequest>,
 ) -> Result<Json<Vec<AccountConfig>>, ApiError> {
-    let mut settings = state.settings.write().await;
-    let existing: Vec<&str> = settings.accounts.iter().map(|a| a.id.as_str()).collect();
-    let mut candidates = discover_accounts(&existing);
+    let current = state.settings.read().await.clone();
+    let existing = current.accounts.iter().map(|a| a.id.clone()).collect();
+    let mut candidates = discover_accounts_blocking(existing).await?;
     if let Some(ids) = req.account_ids {
         let id_set: std::collections::HashSet<String> = ids.into_iter().collect();
-        candidates.retain(|c| id_set.contains(&c.id));
+        candidates.retain(|candidate| id_set.contains(&candidate.id));
     }
 
+    let mut settings = state.settings.write().await;
+    let existing_ids: std::collections::HashSet<String> =
+        settings.accounts.iter().map(|a| a.id.clone()).collect();
+    candidates.retain(|candidate| !existing_ids.contains(&candidate.id));
     if candidates.is_empty() {
         return Ok(Json(settings.accounts.clone()));
     }
 
-    settings.accounts.extend(candidates);
-    save_settings(&settings)
-        .map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let mut updated = settings.clone();
+    updated.accounts.extend(candidates);
+    persist_settings(updated.clone()).await?;
+    *settings = updated;
     Ok(Json(settings.accounts.clone()))
 }
 
@@ -263,10 +360,11 @@ pub async fn save_account_config_handler(
     Json(account): Json<AccountConfig>,
 ) -> Result<Json<Vec<AccountConfig>>, ApiError> {
     let mut settings = state.settings.write().await;
-    settings.accounts.retain(|a| a.id != account.id);
-    settings.accounts.push(account);
-    save_settings(&settings)
-        .map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let mut updated = settings.clone();
+    updated.accounts.retain(|a| a.id != account.id);
+    updated.accounts.push(account);
+    persist_settings(updated.clone()).await?;
+    *settings = updated;
     Ok(Json(settings.accounts.clone()))
 }
 
@@ -280,9 +378,10 @@ pub async fn save_settings_handler(
     Json(new_settings): Json<Settings>,
 ) -> Result<Json<Settings>, ApiError> {
     let mut settings = state.settings.write().await;
-    settings.auto_retrieval = new_settings.auto_retrieval;
-    save_settings(&settings)
-        .map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let mut updated = settings.clone();
+    updated.auto_retrieval = new_settings.auto_retrieval;
+    persist_settings(updated.clone()).await?;
+    *settings = updated;
     Ok(Json(settings.clone()))
 }
 
@@ -307,9 +406,11 @@ pub async fn delete_account_config_handler(
             "Cannot delete the last remaining account",
         ));
     }
-    settings.accounts = filtered;
-    save_settings(&settings)
-        .map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let mut updated = settings.clone();
+    updated.accounts = filtered;
+    persist_settings(updated.clone()).await?;
+    *settings = updated;
     Ok(Json(settings.accounts.clone()))
 }
 
@@ -393,6 +494,17 @@ pub async fn static_handler(
     headers: HeaderMap,
 ) -> Response {
     let raw = path.trim_start_matches('/');
+
+    // API typos should fail as API requests instead of falling through to the
+    // SPA index page with a misleading 200/html response.
+    if raw.starts_with("v1/") {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "detail": "API endpoint not found" })),
+        )
+            .into_response();
+    }
+
     let target = if raw.is_empty() {
         "index.html"
     } else if let Some(stripped) = raw.strip_prefix("static/") {
@@ -415,11 +527,6 @@ pub async fn index_handler(headers: HeaderMap) -> Response {
 }
 
 pub fn create_router(state: AppState) -> Router {
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
-
     Router::new()
         .route("/v1/usage", get(usage_handler))
         .route("/v1/analytics", get(analytics_handler))
@@ -452,7 +559,6 @@ pub fn create_router(state: AppState) -> Router {
         )
         .route("/", get(index_handler))
         .route("/{*path}", get(static_handler))
-        .layer(cors)
         .layer(CompressionLayer::new())
         .with_state(state)
 }

@@ -64,8 +64,10 @@ impl HistoryStore {
                 used_percent REAL NOT NULL,
                 observed_at TEXT NOT NULL
             );
-            CREATE INDEX IF NOT EXISTS idx_history_account_time 
+            CREATE INDEX IF NOT EXISTS idx_history_account_time
             ON usage_history(account_id, observed_at);
+            CREATE INDEX IF NOT EXISTS idx_history_account_window_time
+            ON usage_history(account_id, window_id, observed_at);
             ",
         )?;
         Ok(())
@@ -81,30 +83,44 @@ impl HistoryStore {
             }
         }
 
+        let mut last_records = self.last_records.lock().unwrap();
+        let mut pending_cache_updates: SnapshotCache = HashMap::new();
         let mut to_insert = Vec::new();
-        {
-            let mut last_records = self.last_records.lock().unwrap();
-            for s in snapshots {
-                let ts = s.retrieved_at.or(s.observed_at).unwrap_or(now);
-                let ts_str = ts.to_rfc3339();
-                for w in &s.windows {
-                    let key = (s.account_id.clone(), w.id.clone());
-                    if let Some((prev_pct, prev_time)) = last_records.get(&key) {
-                        if (w.used_percent - *prev_pct).abs() < 0.001
-                            && (ts - *prev_time).num_seconds() < 300
-                        {
-                            continue;
-                        }
+
+        for snapshot in snapshots {
+            // Persist the time at which provider data was observed. Cached retrieval time is
+            // only a fallback when the provider did not supply an observation timestamp.
+            let ts = snapshot
+                .observed_at
+                .or(snapshot.retrieved_at)
+                .unwrap_or(now);
+            let ts_str = ts.to_rfc3339();
+
+            for window in &snapshot.windows {
+                let key = (snapshot.account_id.clone(), window.id.clone());
+                let previous = pending_cache_updates
+                    .get(&key)
+                    .or_else(|| last_records.get(&key));
+
+                if let Some((prev_pct, prev_time)) = previous {
+                    let elapsed = (ts - *prev_time).num_seconds();
+                    if elapsed < 0 {
+                        // Do not let an out-of-order cached observation move history backward.
+                        continue;
                     }
-                    last_records.insert(key, (w.used_percent, ts));
-                    to_insert.push((
-                        s.account_id.clone(),
-                        s.provider.as_str().to_string(),
-                        w.id.clone(),
-                        w.used_percent,
-                        ts_str.clone(),
-                    ));
+                    if (window.used_percent - *prev_pct).abs() < 0.001 && elapsed < 300 {
+                        continue;
+                    }
                 }
+
+                pending_cache_updates.insert(key, (window.used_percent, ts));
+                to_insert.push((
+                    snapshot.account_id.clone(),
+                    snapshot.provider.as_str().to_string(),
+                    window.id.clone(),
+                    window.used_percent,
+                    ts_str.clone(),
+                ));
             }
         }
 
@@ -118,12 +134,37 @@ impl HistoryStore {
             let mut stmt = tx.prepare_cached(
                 "INSERT INTO usage_history (account_id, provider, window_id, used_percent, observed_at) VALUES (?, ?, ?, ?, ?)"
             )?;
-            for (acc_id, prov, win_id, pct, ts) in to_insert {
-                stmt.execute(params![acc_id, prov, win_id, pct, ts])?;
+            for (account_id, provider, window_id, used_percent, observed_at) in &to_insert {
+                stmt.execute(params![
+                    account_id,
+                    provider,
+                    window_id,
+                    used_percent,
+                    observed_at
+                ])?;
             }
         }
         tx.commit()?;
+
+        // The dedup cache represents successfully persisted state. Updating it only after the
+        // transaction commits ensures a failed write can be retried immediately.
+        last_records.extend(pending_cache_updates);
         Ok(())
+    }
+
+    fn history_point_from_row(row: &rusqlite::Row<'_>) -> Result<HistoryPoint> {
+        let ts_str: String = row.get(4)?;
+        let observed_at = DateTime::parse_from_rfc3339(&ts_str)
+            .with_context(|| format!("invalid observed_at value in usage_history: {ts_str}"))?
+            .with_timezone(&Utc);
+
+        Ok(HistoryPoint {
+            account_id: row.get(0)?,
+            provider: row.get(1)?,
+            window_id: row.get(2)?,
+            used_percent: row.get(3)?,
+            observed_at,
+        })
     }
 
     pub fn get_history(&self, account_id: Option<&str>, hours: i64) -> Result<Vec<HistoryPoint>> {
@@ -142,32 +183,12 @@ impl HistoryStore {
         if let Some(acc_id) = account_id {
             let mut rows = stmt.query(params![cutoff, acc_id])?;
             while let Some(row) = rows.next()? {
-                let ts_str: String = row.get(4)?;
-                let ts = DateTime::parse_from_rfc3339(&ts_str)
-                    .map(|dt| dt.with_timezone(&Utc))
-                    .unwrap_or_else(|_| Utc::now());
-                points.push(HistoryPoint {
-                    account_id: row.get(0)?,
-                    provider: row.get(1)?,
-                    window_id: row.get(2)?,
-                    used_percent: row.get(3)?,
-                    observed_at: ts,
-                });
+                points.push(Self::history_point_from_row(row)?);
             }
         } else {
             let mut rows = stmt.query(params![cutoff])?;
             while let Some(row) = rows.next()? {
-                let ts_str: String = row.get(4)?;
-                let ts = DateTime::parse_from_rfc3339(&ts_str)
-                    .map(|dt| dt.with_timezone(&Utc))
-                    .unwrap_or_else(|_| Utc::now());
-                points.push(HistoryPoint {
-                    account_id: row.get(0)?,
-                    provider: row.get(1)?,
-                    window_id: row.get(2)?,
-                    used_percent: row.get(3)?,
-                    observed_at: ts,
-                });
+                points.push(Self::history_point_from_row(row)?);
             }
         }
 

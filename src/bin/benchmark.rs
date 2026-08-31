@@ -161,6 +161,7 @@ async fn main() {
                 home: "/tmp".to_string(),
                 priority: 0,
                 warning_threshold: 80.0,
+                critical_threshold: 95.0,
                 auto_retrieval: true,
             })
             .collect(),

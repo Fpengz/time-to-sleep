@@ -1,8 +1,14 @@
 use serde_json::Value;
 use tokio::sync::broadcast::{self, Receiver, Sender};
 
+#[derive(Debug, Clone)]
+pub struct BroadcastEvent {
+    pub event_type: String,
+    pub data: String,
+}
+
 pub struct EventBroadcaster {
-    sender: Sender<String>,
+    sender: Sender<BroadcastEvent>,
 }
 
 impl Default for EventBroadcaster {
@@ -17,7 +23,7 @@ impl EventBroadcaster {
         Self { sender }
     }
 
-    pub fn subscribe(&self) -> Receiver<String> {
+    pub fn subscribe(&self) -> Receiver<BroadcastEvent> {
         self.sender.subscribe()
     }
 
@@ -29,7 +35,9 @@ impl EventBroadcaster {
         if !self.has_subscribers() {
             return;
         }
-        let msg = format!("event: {}\ndata: {}\n\n", event_type, data);
-        let _ = self.sender.send(msg);
+        let _ = self.sender.send(BroadcastEvent {
+            event_type: event_type.to_owned(),
+            data: data.to_string(),
+        });
     }
 }

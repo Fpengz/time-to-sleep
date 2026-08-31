@@ -85,10 +85,17 @@ fn build_services() -> (Arc<UsageService>, Arc<AnalyticsService>, Arc<HistorySto
 
     let usage_service = Arc::new(UsageService::new(providers));
     let analytics_service = Arc::new(AnalyticsService::new());
-    let history_store = Arc::new(
-        HistoryStore::new(Some(&HistoryStore::default_path()))
-            .unwrap_or_else(|_| HistoryStore::new(None).unwrap()),
-    );
+    let history_path = HistoryStore::default_path();
+    let history_store = Arc::new(match HistoryStore::new(Some(&history_path)) {
+        Ok(store) => store,
+        Err(error) => {
+            eprintln!(
+                "warning: failed to open persistent history store at {}: {error:#}; falling back to in-memory history (data will not survive restart)",
+                history_path.display()
+            );
+            HistoryStore::new(None).expect("failed to create in-memory history store")
+        }
+    });
 
     (usage_service, analytics_service, history_store)
 }
@@ -123,7 +130,13 @@ async fn fetch_usage_remote_or_local(port: u16, force_refresh: bool) -> Vec<Usag
     let settings = load_settings();
     let (usage_service, _, history_store) = build_services();
     let snapshots = usage_service.collect(&settings, force_refresh).await;
-    let _ = history_store.record_snapshots(&snapshots);
+    let snapshots_to_record = snapshots.clone();
+    let store = history_store.clone();
+    match tokio::task::spawn_blocking(move || store.record_snapshots(&snapshots_to_record)).await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => eprintln!("warning: failed to persist usage history: {error:#}"),
+        Err(error) => eprintln!("warning: history persistence task failed: {error}"),
+    }
     snapshots
 }
 
@@ -208,7 +221,6 @@ async fn main() -> Result<()> {
             }
         }
         None => {
-            // Default: start serve
             let settings = Arc::new(RwLock::new(load_settings()));
             let (usage_service, analytics_service, history_store) = build_services();
             let broadcaster = Arc::new(EventBroadcaster::new());

@@ -45,6 +45,7 @@ impl UsageService {
 
         for acc in &settings.accounts {
             let acc = acc.clone();
+            let task_account = acc.clone();
             let cache_lock = self.cache.clone();
             let provider = self.providers.get(&acc.provider).cloned();
 
@@ -58,7 +59,7 @@ impl UsageService {
                 .unwrap_or(Duration::from_secs(10));
             let auto_retrieval_allowed = settings.auto_retrieval.enabled && acc.auto_retrieval;
 
-            tasks.push(tokio::spawn(async move {
+            let handle = tokio::spawn(async move {
                 if !force_refresh {
                     let cache = cache_lock.read().await;
                     if let Some((snap, cached_time)) = cache.get(&acc.id) {
@@ -125,16 +126,86 @@ impl UsageService {
                 let mut cache = cache_lock.write().await;
                 cache.insert(acc.id.clone(), (snap.clone(), Utc::now()));
                 snap
-            }));
+            });
+            tasks.push((task_account, handle));
         }
 
-        let mut results = Vec::new();
-        for task in tasks {
-            if let Ok(snap) = task.await {
-                results.push(snap);
+        let mut results = Vec::with_capacity(tasks.len());
+        for (account, task) in tasks {
+            match task.await {
+                Ok(snap) => results.push(snap),
+                Err(error) => {
+                    tracing::error!(
+                        account_id = %account.id,
+                        provider = %account.provider,
+                        %error,
+                        "provider collection task failed"
+                    );
+                    let failed_at = Utc::now();
+                    results.push(UsageSnapshot {
+                        account_id: account.id.clone(),
+                        provider: account.provider,
+                        configured_email: account.email.clone(),
+                        observed_email: None,
+                        status: AccountStatus::Unavailable,
+                        error_code: ErrorCode::UpstreamError,
+                        message: Some("Provider task failed unexpectedly".to_string()),
+                        source: account.provider.as_str().to_string(),
+                        plan_type: None,
+                        observed_at: Some(failed_at),
+                        retrieved_at: Some(failed_at),
+                        windows: vec![],
+                    });
+                }
             }
         }
 
         results
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::{AccountConfig, AutoRetrievalSettings};
+    use async_trait::async_trait;
+
+    struct PanicProvider;
+
+    #[async_trait]
+    impl UsageProvider for PanicProvider {
+        async fn fetch(&self, _account: &AccountConfig) -> UsageSnapshot {
+            panic!("simulated provider panic");
+        }
+    }
+
+    #[tokio::test]
+    async fn provider_task_panic_returns_unavailable_snapshot() {
+        let mut providers: HashMap<ProviderName, Arc<dyn UsageProvider>> = HashMap::new();
+        providers.insert(ProviderName::Codex, Arc::new(PanicProvider));
+        let service = UsageService::new(providers);
+        let settings = Settings {
+            accounts: vec![AccountConfig {
+                id: "codex-test".to_string(),
+                provider: ProviderName::Codex,
+                email: "test@example.com".to_string(),
+                home: "/tmp".to_string(),
+                priority: 0,
+                warning_threshold: 80.0,
+                auto_retrieval: true,
+            }],
+            auto_retrieval: AutoRetrievalSettings::default(),
+        };
+
+        let snapshots = service.collect(&settings, true).await;
+
+        assert_eq!(snapshots.len(), 1);
+        assert_eq!(snapshots[0].account_id, "codex-test");
+        assert_eq!(snapshots[0].status, AccountStatus::Unavailable);
+        assert_eq!(snapshots[0].error_code, ErrorCode::UpstreamError);
+        assert_eq!(
+            snapshots[0].message.as_deref(),
+            Some("Provider task failed unexpectedly")
+        );
     }
 }
