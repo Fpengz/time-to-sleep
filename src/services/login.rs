@@ -45,6 +45,8 @@ pub struct LoginService {
     command: String,
     records: RecordMap,
     attempt_ttl: ChronoDuration,
+    record_retention: ChronoDuration,
+    handshake_timeout: Duration,
 }
 
 impl Default for LoginService {
@@ -59,7 +61,30 @@ impl LoginService {
             command: "codex".to_string(),
             records: Arc::new(RwLock::new(HashMap::new())),
             attempt_ttl: ChronoDuration::minutes(10),
+            record_retention: ChronoDuration::minutes(5),
+            handshake_timeout: Duration::from_secs(10),
         }
+    }
+
+    #[cfg(test)]
+    fn with_command(command: String, handshake_timeout: Duration) -> Self {
+        Self {
+            command,
+            records: Arc::new(RwLock::new(HashMap::new())),
+            attempt_ttl: ChronoDuration::minutes(10),
+            record_retention: ChronoDuration::minutes(5),
+            handshake_timeout,
+        }
+    }
+
+    async fn prune_finished_records(&self) {
+        let now = Utc::now();
+        let retention = self.record_retention;
+        let mut records = self.records.write().await;
+        records.retain(|_, record| {
+            record.attempt.status == LoginStatus::Pending
+                || now <= record.attempt.expires_at + retention
+        });
     }
 
     pub async fn start(
@@ -68,6 +93,8 @@ impl LoginService {
         account_id: &str,
         method_str: &str,
     ) -> Result<LoginChallenge, LoginError> {
+        self.prune_finished_records().await;
+
         let account = settings
             .accounts
             .iter()
@@ -92,25 +119,33 @@ impl LoginService {
         };
 
         let expanded_home = account.expanded_home();
-        std::fs::create_dir_all(&expanded_home)
+        tokio::fs::create_dir_all(&expanded_home)
+            .await
             .map_err(|e| LoginError::Internal(format!("failed to create home dir: {e}")))?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            if let Ok(meta) = std::fs::metadata(&expanded_home) {
+            if let Ok(meta) = tokio::fs::metadata(&expanded_home).await {
                 let mut perms = meta.permissions();
                 perms.set_mode(0o700);
-                let _ = std::fs::set_permissions(&expanded_home, perms);
+                let _ = tokio::fs::set_permissions(&expanded_home, perms).await;
             }
         }
 
-        let mut child = Command::new(&self.command)
+        let mut command = Command::new(&self.command);
+        command
             .arg("app-server")
             .env("CODEX_HOME", &expanded_home)
             .env("PATH", crate::providers::codex::extended_path_env())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
+            .kill_on_drop(true);
+
+        // kill_on_drop is important here: several handshake operations below can fail before
+        // the child is registered in a Session. Dropping the local Child must not leak an
+        // orphaned codex app-server process on those early returns.
+        let mut child = command
             .spawn()
             .map_err(|e| LoginError::Internal(format!("failed to launch codex: {e}")))?;
 
@@ -124,8 +159,6 @@ impl LoginService {
             .ok_or_else(|| LoginError::Internal("failed to open codex stdout".to_string()))?;
         let mut reader = BufReader::new(stdout).lines();
 
-        let handshake_timeout = Duration::from_secs(10);
-
         write_message(
             &mut raw_stdin,
             &json!({
@@ -136,7 +169,7 @@ impl LoginService {
             }),
         )
         .await?;
-        wait_for_response(&mut reader, 1, handshake_timeout).await?;
+        wait_for_response(&mut reader, 1, self.handshake_timeout).await?;
 
         write_message(
             &mut raw_stdin,
@@ -158,7 +191,7 @@ impl LoginService {
             }),
         )
         .await?;
-        let result = wait_for_response(&mut reader, 2, handshake_timeout).await?;
+        let result = wait_for_response(&mut reader, 2, self.handshake_timeout).await?;
 
         let login_id = result
             .get("loginId")
@@ -250,15 +283,38 @@ impl LoginService {
         account_id: &str,
         attempt_id: &str,
     ) -> Result<LoginAttempt, LoginError> {
+        self.prune_finished_records().await;
+
         let key = (account_id.to_string(), attempt_id.to_string());
-        let mut records = self.records.write().await;
-        let record = records.get_mut(&key).ok_or(LoginError::AttemptNotFound)?;
-        if record.attempt.status == LoginStatus::Pending && Utc::now() >= record.attempt.expires_at
-        {
-            record.attempt.status = LoginStatus::Expired;
-            record.attempt.message = Some("Login attempt expired.".to_string());
+        let cleanup = {
+            let mut records = self.records.write().await;
+            let record = records.get_mut(&key).ok_or(LoginError::AttemptNotFound)?;
+            if record.attempt.status == LoginStatus::Pending
+                && Utc::now() >= record.attempt.expires_at
+            {
+                record.attempt.status = LoginStatus::Expired;
+                record.attempt.message = Some("Login attempt expired.".to_string());
+                Some((record.session.take(), record.monitor.take()))
+            } else {
+                None
+            }
+        };
+
+        if let Some((session, monitor)) = cleanup {
+            if let Some(handle) = monitor {
+                handle.abort();
+            }
+            if let Some(session) = session {
+                let mut child = session.child.lock().await;
+                let _ = child.kill().await;
+            }
         }
-        Ok(record.attempt.clone())
+
+        let records = self.records.read().await;
+        records
+            .get(&key)
+            .map(|record| record.attempt.clone())
+            .ok_or(LoginError::AttemptNotFound)
     }
 
     pub async fn cancel(
@@ -266,6 +322,8 @@ impl LoginService {
         account_id: &str,
         attempt_id: &str,
     ) -> Result<LoginAttempt, LoginError> {
+        self.prune_finished_records().await;
+
         let key = (account_id.to_string(), attempt_id.to_string());
         let (session, monitor, was_pending) = {
             let mut records = self.records.write().await;
@@ -306,7 +364,7 @@ impl LoginService {
         let records = self.records.read().await;
         records
             .get(&key)
-            .map(|r| r.attempt.clone())
+            .map(|record| record.attempt.clone())
             .ok_or(LoginError::AttemptNotFound)
     }
 }
@@ -393,6 +451,13 @@ struct LoginCompletion {
     error: Option<String>,
 }
 
+fn completion_matches_login_id(params: &Value, expected_login_id: &Option<String>) -> bool {
+    let Some(expected) = expected_login_id else {
+        return true;
+    };
+    params.get("loginId").and_then(|value| value.as_str()) == Some(expected.as_str())
+}
+
 async fn wait_for_completion(
     reader: &mut Lines<BufReader<ChildStdout>>,
     login_id: &Option<String>,
@@ -401,16 +466,8 @@ async fn wait_for_completion(
         let msg = read_message(reader).await?;
         if msg.get("method").and_then(|v| v.as_str()) == Some("account/login/completed") {
             let params = msg.get("params").cloned().unwrap_or(Value::Null);
-            let message_login_id = params
-                .get("loginId")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
-            if let Some(expected) = login_id {
-                if let Some(got) = &message_login_id {
-                    if got != expected {
-                        continue;
-                    }
-                }
+            if !completion_matches_login_id(&params, login_id) {
+                continue;
             }
             return Ok(LoginCompletion {
                 success: params
@@ -446,9 +503,9 @@ async fn read_account_email(
     let result = wait_for_response(reader, 3, Duration::from_secs(10)).await?;
     Ok(result
         .get("account")
-        .and_then(|a| a.get("email"))
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string()))
+        .and_then(|account| account.get("email"))
+        .and_then(|value| value.as_str())
+        .map(|email| email.to_string()))
 }
 
 async fn write_message(stdin: &mut ChildStdin, msg: &Value) -> Result<(), LoginError> {
@@ -499,5 +556,130 @@ async fn wait_for_response(
         Err(_) => Err(LoginError::Internal(
             "codex app-server timed out".to_string(),
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::{AccountConfig, AutoRetrievalSettings};
+
+    fn test_attempt(status: LoginStatus, expires_at: DateTime<Utc>) -> LoginAttempt {
+        LoginAttempt {
+            attempt_id: "attempt".to_string(),
+            account_id: "codex-test".to_string(),
+            method: LoginMethod::Browser,
+            status,
+            started_at: expires_at - ChronoDuration::minutes(10),
+            expires_at,
+            observed_email: None,
+            message: None,
+        }
+    }
+
+    #[test]
+    fn completion_requires_matching_login_id_when_expected() {
+        let expected = Some("expected-id".to_string());
+        assert!(!completion_matches_login_id(
+            &json!({"success": true}),
+            &expected
+        ));
+        assert!(!completion_matches_login_id(
+            &json!({"loginId": "other-id", "success": true}),
+            &expected
+        ));
+        assert!(completion_matches_login_id(
+            &json!({"loginId": "expected-id", "success": true}),
+            &expected
+        ));
+        assert!(completion_matches_login_id(
+            &json!({"success": true}),
+            &None
+        ));
+    }
+
+    #[tokio::test]
+    async fn prunes_old_finished_records() {
+        let service = LoginService::new();
+        let key = ("codex-test".to_string(), "attempt".to_string());
+        service.records.write().await.insert(
+            key,
+            LoginRecord {
+                attempt: test_attempt(
+                    LoginStatus::Succeeded,
+                    Utc::now() - ChronoDuration::minutes(6),
+                ),
+                session: None,
+                monitor: None,
+            },
+        );
+
+        service.prune_finished_records().await;
+        assert!(service.records.read().await.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn failed_handshake_kills_unregistered_child() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let unique = Uuid::new_v4().simple().to_string();
+        let temp_dir = std::env::temp_dir().join(format!("tts-login-test-{unique}"));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let script_path = temp_dir.join("fake-codex");
+        let pid_path = temp_dir.join("child.pid");
+        let home_path = temp_dir.join("codex-home");
+        let script = format!(
+            "#!/bin/sh\necho $$ > '{}'\nexec sleep 30\n",
+            pid_path.display()
+        );
+        std::fs::write(&script_path, script).unwrap();
+        let mut permissions = std::fs::metadata(&script_path).unwrap().permissions();
+        permissions.set_mode(0o700);
+        std::fs::set_permissions(&script_path, permissions).unwrap();
+
+        let service = LoginService::with_command(
+            script_path.to_string_lossy().to_string(),
+            Duration::from_millis(100),
+        );
+        let settings = Settings {
+            accounts: vec![AccountConfig {
+                id: "codex-test".to_string(),
+                provider: ProviderName::Codex,
+                email: "test@example.com".to_string(),
+                home: home_path.to_string_lossy().to_string(),
+                priority: 0,
+                warning_threshold: 80.0,
+                auto_retrieval: true,
+            }],
+            auto_retrieval: AutoRetrievalSettings::default(),
+        };
+
+        let error = service
+            .start(&settings, "codex-test", "browser")
+            .await
+            .expect_err("fake app-server should time out");
+        assert!(error.to_string().contains("timed out"));
+
+        let pid: u32 = std::fs::read_to_string(&pid_path)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        let mut alive = true;
+        for _ in 0..50 {
+            alive = std::process::Command::new("kill")
+                .args(["-0", &pid.to_string()])
+                .status()
+                .map(|status| status.success())
+                .unwrap_or(false);
+            if !alive {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert!(!alive, "child process {pid} survived failed handshake");
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }
