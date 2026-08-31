@@ -116,8 +116,8 @@ function providerLabel(provider) {
 }
 
 function accountLabel(snapshot) {
-  if (snapshot.account_id === "codex-primary") return "Codex · primary";
-  if (snapshot.account_id === "codex-secondary") return "Codex · second account";
+  if (snapshot.account_id === "codex-1" || snapshot.account_id === "codex-primary") return "Codex · 1";
+  if (snapshot.account_id === "codex-2" || snapshot.account_id === "codex-secondary") return "Codex · 2";
   return providerLabel(snapshot.provider);
 }
 
@@ -253,7 +253,7 @@ function usageColorVar(percent) {
 }
 
 function providerVar(provider, accountId) {
-  if (provider === "codex" && accountId && accountId.includes("secondary")) return "var(--p-codex-2)";
+  if (provider === "codex" && accountId && (accountId.includes("secondary") || accountId.includes("-2"))) return "var(--p-codex-2)";
   return {
     codex: "var(--p-codex)",
     claude: "var(--p-claude)",
@@ -531,6 +531,19 @@ function renderCardMenu(snapshot, isCodex) {
 
   const closeMenu = () => wrap.classList.remove("open");
 
+  if (isCodex) {
+    const loginItem = element("button", {
+      className: "card-menu-item",
+      text: "Log in / Connect",
+      attributes: { type: "button" },
+    });
+    loginItem.addEventListener("click", () => {
+      closeMenu();
+      openSetup(snapshot.account_id);
+    });
+    popover.append(loginItem);
+  }
+
   if (!isCodex && snapshot.status !== "live") {
     const retryItem = element("button", {
       className: "card-menu-item",
@@ -647,12 +660,11 @@ function renderAccount(snapshot) {
 
   const cardActions = element("div", { className: "card-actions" });
   const isCodex = snapshot.provider === "codex";
-  if (isCodex && snapshot.status !== "live") {
-    // Codex's broken-account fix is a login flow, not a generic retry — keep it
-    // as a visible primary action rather than burying it in the overflow menu.
+  const needsLogin = isCodex && (snapshot.status !== "live" || !snapshot.windows || snapshot.windows.length === 0 || !snapshot.observed_email);
+  if (needsLogin) {
     const action = element("button", {
       className: "button button-action button-sm",
-      text: snapshot.status === "unavailable" ? "Set up account" : "Retry login",
+      text: snapshot.status === "unavailable" ? "Set up account" : "Connect account",
       attributes: { type: "button" },
     });
     action.addEventListener("click", () => openSetup(snapshot.account_id));
@@ -781,18 +793,22 @@ function setupStatusMessage(status) {
   return setupMessages[status] || setupMessages.idle;
 }
 
-async function copyDeviceCode(code, button) {
-  const originalLabel = button.textContent;
+async function copyDeviceCode(code, badge) {
+  const original = badge.textContent;
   try {
-    if (!navigator.clipboard?.writeText) throw new Error("Clipboard access is unavailable");
+    if (!navigator.clipboard?.writeText) throw new Error("Clipboard access unavailable");
     await navigator.clipboard.writeText(code);
-    button.textContent = "Copied";
+    badge.textContent = "✓ Copied!";
+    badge.classList.add("copied");
   } catch {
-    button.textContent = "Copy failed";
+    badge.textContent = "Copy failed";
   }
   window.setTimeout(() => {
-    if (button.isConnected) button.textContent = originalLabel;
-  }, 1500);
+    if (badge.isConnected) {
+      badge.textContent = original;
+      badge.classList.remove("copied");
+    }
+  }, 2000);
 }
 
 function renderSetup() {
@@ -807,80 +823,212 @@ function renderSetup() {
   panel.hidden = false;
   const setup = state.setup;
   panel.dataset.status = setup.status;
-  const title = element("div", { className: "setup-heading" });
-  const titleCopy = element("div");
-  append(titleCopy, element("p", { className: "eyebrow", text: "Account setup" }), element("h2", { id: "setup-title", text: "Connect Codex" }), element("p", { className: "setup-copy", text: `Finish the sign-in for ${setup.email || setup.accountId}. Use a private window or device code if another ChatGPT account is active.` }));
-  const close = element("button", { className: "icon-button setup-close", text: "×", attributes: { type: "button", "aria-label": "Close account setup" } });
-  close.addEventListener("click", () => {
-    if (state.setup !== setup) return;
+
+  const backdrop = element("div", { className: "setup-backdrop" });
+  backdrop.addEventListener("click", (e) => {
+    if (e.target === backdrop) {
+      stopLoginPolling(setup);
+      state.setup = null;
+      renderSetup();
+    }
+  });
+
+  const modal = element("div", { className: "setup-modal" });
+
+  // Header
+  const header = element("div", { className: "setup-modal-header" });
+  const headerLeft = element("div");
+  const eyebrowRow = element("div", { className: "setup-eyebrow-row" });
+  append(
+    eyebrowRow,
+    element("span", { className: "setup-provider-pill", text: "Codex OAuth" }),
+    element("span", { className: "setup-account-badge", text: setup.accountId })
+  );
+  const title = element("h2", { className: "setup-modal-title", text: "Connect Codex Account" });
+  const copy = element("p", {
+    className: "setup-modal-copy",
+    text: `Authorize ${setup.accountId} to track quotas and rate limits in its isolated directory.`
+  });
+  append(headerLeft, eyebrowRow, title, copy);
+
+  const closeBtn = element("button", {
+    className: "setup-modal-close",
+    text: "✕",
+    attributes: { type: "button", "aria-label": "Close" }
+  });
+  closeBtn.addEventListener("click", () => {
     stopLoginPolling(setup);
     state.setup = null;
     renderSetup();
   });
-  append(title, titleCopy, close);
-  panel.append(title);
 
-  const controls = element("div", { className: "setup-controls" });
-  const methodField = element("label", { className: "setup-field" });
-  append(methodField, element("span", { text: "Sign-in method" }));
-  const method = element("select", { attributes: { id: "setup-method", name: "method" } });
-  const browserOption = element("option", { text: "Browser sign-in", attributes: { value: "browser" } });
-  const deviceOption = element("option", { text: "Device code", attributes: { value: "device_code" } });
-  method.append(browserOption, deviceOption);
-  method.value = setup.method;
-  method.disabled = ["starting", "pending"].includes(setup.status);
-  method.addEventListener("change", () => {
-    if (state.setup === setup) state.setup.method = method.value;
-  });
-  methodField.append(method);
-  const start = element("button", { className: "button button-action", text: setup.status === "starting" ? "Starting…" : setup.status === "pending" ? "Waiting…" : "Start login", attributes: { type: "button" } });
-  start.disabled = ["starting", "pending"].includes(setup.status);
-  start.addEventListener("click", startLogin);
-  const cancel = element("button", { className: "button button-secondary", text: setup.attemptId && setup.status === "pending" ? "Cancel attempt" : "Close", attributes: { type: "button" } });
-  cancel.addEventListener("click", () => cancelSetup(setup));
-  append(controls, methodField, start, cancel);
-  panel.append(controls);
+  append(header, headerLeft, closeBtn);
+  modal.append(header);
 
-  const statusClass = ["failed", "expired", "error"].includes(setup.status)
-    ? "setup-status setup-status-error"
-    : "setup-status";
-  const status = element("p", {
-    className: statusClass,
-    text: setup.error || setup.message || setupStatusMessage(setup.status),
-    attributes: { role: "status", "aria-live": "polite" },
-  });
+  // Method Selector (when not in challenge screen)
+  if (!setup.challenge) {
+    const methodSection = element("div", { className: "setup-methods-grid" });
 
-  if (setup.challenge) {
-    const challenge = element("div", { className: "setup-challenge" });
-    challenge.append(status);
-    if (setup.challenge.auth_url) {
-      const link = element("a", { className: "setup-link", text: "Open authorization page ↗", attributes: { href: setup.challenge.auth_url, target: "_blank", rel: "noreferrer" } });
-      challenge.append(link);
-    }
-    if (setup.challenge.verification_url) {
-      const link = element("a", { className: "setup-link", text: "Open verification page ↗", attributes: { href: setup.challenge.verification_url, target: "_blank", rel: "noreferrer" } });
-      challenge.append(link);
-    }
-    if (setup.challenge.user_code) {
-      const code = element("p", { className: "setup-code-label", text: "Your device code" });
-      const codeValue = element("button", {
-        className: "setup-code",
-        text: setup.challenge.user_code,
-        attributes: {
-          type: "button",
-          "aria-label": "Copy device code",
-          title: "Copy device code",
-        },
-      });
-      codeValue.addEventListener("click", () => {
-        void copyDeviceCode(setup.challenge.user_code, codeValue);
-      });
-      append(challenge, code, codeValue);
-    }
-    panel.append(challenge);
-  } else {
-    panel.append(status);
+    // Method 1: Device Code
+    const deviceCard = element("button", {
+      className: `setup-method-card ${setup.method === "device_code" ? "active" : ""}`,
+      attributes: { type: "button" }
+    });
+    deviceCard.addEventListener("click", () => {
+      if (["starting", "pending"].includes(setup.status)) return;
+      setup.method = "device_code";
+      renderSetup();
+    });
+    const deviceIcon = element("span", { className: "setup-method-icon", text: "📟" });
+    const deviceText = element("div", { className: "setup-method-info" });
+    append(
+      deviceText,
+      element("div", { className: "setup-method-title", text: "Device Code" }),
+      element("div", { className: "setup-method-desc", text: "Copy a one-time code to authorize on openai.com." })
+    );
+    append(deviceCard, deviceIcon, deviceText);
+
+    // Method 2: Browser
+    const browserCard = element("button", {
+      className: `setup-method-card ${setup.method === "browser" ? "active" : ""}`,
+      attributes: { type: "button" }
+    });
+    browserCard.addEventListener("click", () => {
+      if (["starting", "pending"].includes(setup.status)) return;
+      setup.method = "browser";
+      renderSetup();
+    });
+    const browserIcon = element("span", { className: "setup-method-icon", text: "🌐" });
+    const browserText = element("div", { className: "setup-method-info" });
+    append(
+      browserText,
+      element("div", { className: "setup-method-title", text: "Browser Sign-In" }),
+      element("div", { className: "setup-method-desc", text: "Direct OAuth login in your default browser." })
+    );
+    append(browserCard, browserIcon, browserText);
+
+    append(methodSection, deviceCard, browserCard);
+    modal.append(methodSection);
   }
+
+  // Active Challenge Flow
+  if (setup.challenge) {
+    const challengeBox = element("div", { className: "setup-challenge-box" });
+
+    if (setup.challenge.user_code) {
+      const codeHeader = element("div", { className: "setup-code-header" });
+      append(
+        codeHeader,
+        element("span", { className: "setup-step-num", text: "1" }),
+        element("span", { className: "setup-step-text", text: "Click to copy your device code:" })
+      );
+
+      const codeBtn = element("button", {
+        className: "setup-code-badge",
+        attributes: { type: "button", title: "Click to copy code" }
+      });
+      const codeVal = element("span", { className: "setup-code-val", text: setup.challenge.user_code });
+      const copyHint = element("span", { className: "setup-copy-hint", text: "📋 Copy" });
+      append(codeBtn, codeVal, copyHint);
+
+      codeBtn.addEventListener("click", () => {
+        void copyDeviceCode(setup.challenge.user_code, copyHint);
+      });
+
+      append(challengeBox, codeHeader, codeBtn);
+
+      if (setup.challenge.verification_url || setup.challenge.auth_url) {
+        const step2 = element("div", { className: "setup-code-header", attributes: { style: "margin-top: 8px;" } });
+        append(
+          step2,
+          element("span", { className: "setup-step-num", text: "2" }),
+          element("span", { className: "setup-step-text", text: "Open verification page & paste code:" })
+        );
+
+        const openLink = element("a", {
+          className: "button button-action setup-open-link",
+          text: "Open OpenAI Verification Page ↗",
+          attributes: {
+            href: setup.challenge.verification_url || setup.challenge.auth_url,
+            target: "_blank",
+            rel: "noreferrer"
+          }
+        });
+        append(challengeBox, step2, openLink);
+      }
+    } else if (setup.challenge.auth_url) {
+      const authLink = element("a", {
+        className: "button button-action setup-open-link",
+        text: "Open Authorization Page ↗",
+        attributes: {
+          href: setup.challenge.auth_url,
+          target: "_blank",
+          rel: "noreferrer"
+        }
+      });
+      challengeBox.append(authLink);
+    }
+
+    // Live waiting pulse
+    const waitingBar = element("div", { className: "setup-waiting-bar" });
+    const spinner = element("span", { className: "setup-spinner" });
+    const waitingText = element("span", {
+      className: "setup-waiting-text",
+      text: setup.status === "pending" ? "Waiting for authorization in browser…" : setupStatusMessage(setup.status)
+    });
+    append(waitingBar, spinner, waitingText);
+    challengeBox.append(waitingBar);
+
+    modal.append(challengeBox);
+  }
+
+  // Error Banner
+  if (setup.status === "error" || setup.error || setup.status === "failed") {
+    const errorBox = element("div", { className: "setup-error-banner" });
+    append(
+      errorBox,
+      element("span", { className: "setup-error-icon", text: "⚠️" }),
+      element("span", { className: "setup-error-text", text: setup.error || setup.message || "Sign-in attempt failed. Please try again." })
+    );
+    modal.append(errorBox);
+  }
+
+  // Footer Actions
+  const footer = element("div", { className: "setup-modal-footer" });
+  if (!setup.challenge) {
+    const cancelBtn = element("button", {
+      className: "button button-secondary",
+      text: "Cancel",
+      attributes: { type: "button" }
+    });
+    cancelBtn.addEventListener("click", () => {
+      stopLoginPolling(setup);
+      state.setup = null;
+      renderSetup();
+    });
+
+    const startBtn = element("button", {
+      className: "button button-action setup-start-btn",
+      text: setup.status === "starting" ? "Starting…" : "Start Sign-In →",
+      attributes: { type: "button" }
+    });
+    startBtn.disabled = ["starting", "pending"].includes(setup.status);
+    startBtn.addEventListener("click", startLogin);
+
+    append(footer, cancelBtn, startBtn);
+  } else {
+    const cancelBtn = element("button", {
+      className: "button button-secondary setup-cancel-btn",
+      text: "Cancel Attempt",
+      attributes: { type: "button" }
+    });
+    cancelBtn.addEventListener("click", () => cancelSetup(setup));
+    footer.append(cancelBtn);
+  }
+  modal.append(footer);
+
+  backdrop.append(modal);
+  panel.append(backdrop);
 }
 
 function openSetup(accountId) {
@@ -1005,7 +1153,7 @@ const providerColors = {
 
 function getSeriesColor(provider, accountId, windowId) {
   if (provider === "codex") {
-    if (accountId?.includes("secondary")) return "#818cf8";
+    if (accountId && (accountId.includes("secondary") || accountId.includes("-2"))) return "#818cf8";
     return "#38bdf8";
   }
   if (provider === "claude") {
@@ -1269,7 +1417,7 @@ function renderDetailedSparklinesGrid() {
         { label: "Net Change", val: `${deltaVal >= 0 ? "+" : ""}${deltaVal.toFixed(1)}%` },
       ].forEach((s) => {
         const st = element("div", { className: "detail-stat" });
-        append(st, element("span", { className: "detail-stat-lbl", text: s.label }), element("span", { className: "detail-stat-val", text: s.val }));
+        append(st, element("span", { className: "detail-stat-lbl", text: `${s.label}: ` }), element("span", { className: "detail-stat-val", text: s.val }));
         statsRow.append(st);
       });
       card.append(statsRow);
@@ -1634,6 +1782,9 @@ function setupAccountModal() {
     select("#acc-home").value = "";
     select("#acc-warning").value = "80";
     select("#acc-critical").value = "95";
+    if (select("#acc-auto-retrieval")) {
+      select("#acc-auto-retrieval").checked = true;
+    }
     modal?.showModal();
   });
 
@@ -1654,6 +1805,7 @@ function setupAccountModal() {
       home: select("#acc-home").value.trim(),
       warning_threshold: parseFloat(select("#acc-warning").value) || 80.0,
       critical_threshold: parseFloat(select("#acc-critical").value) || 95.0,
+      auto_retrieval: select("#acc-auto-retrieval") ? select("#acc-auto-retrieval").checked : true,
     };
     try {
       const res = await fetch("/v1/accounts/config", {
@@ -1665,6 +1817,70 @@ function setupAccountModal() {
         const err = await res.json();
         throw new Error(err.detail || "Failed to save account");
       }
+      modal?.close();
+      await refresh(true);
+    } catch (err) {
+      alert("Error: " + err.message);
+    }
+  });
+}
+
+function setupPreferencesModal() {
+  const modal = select("#preferences-modal");
+  const form = select("#preferences-form");
+  const prefsBtn = select("#preferences-btn");
+  const cancelBtn = select("#prefs-cancel-btn");
+  const closeBtn = select("#prefs-close-btn");
+
+  prefsBtn?.addEventListener("click", async () => {
+    try {
+      const res = await fetch("/v1/settings");
+      if (res.ok) {
+        const settings = await res.json();
+        const auto = settings.auto_retrieval || {};
+        if (select("#prefs-auto-enabled")) select("#prefs-auto-enabled").checked = auto.enabled !== false;
+        if (select("#prefs-poll-interval")) select("#prefs-poll-interval").value = String(auto.poll_interval_secs || 60);
+        if (select("#prefs-codex-ttl")) select("#prefs-codex-ttl").value = String(auto.codex_ttl_secs || 180);
+        if (select("#prefs-claude-ttl")) select("#prefs-claude-ttl").value = String(auto.claude_ttl_secs || 300);
+        if (select("#prefs-antigravity-ttl")) select("#prefs-antigravity-ttl").value = String(auto.antigravity_ttl_secs || 90);
+      }
+    } catch (err) {
+      console.warn("Failed to load settings:", err);
+    }
+    modal?.showModal();
+  });
+
+  cancelBtn?.addEventListener("click", () => modal?.close());
+  closeBtn?.addEventListener("click", () => modal?.close());
+
+  form?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    try {
+      const settingsRes = await fetch("/v1/settings");
+      const currentSettings = settingsRes.ok ? await settingsRes.json() : { accounts: [] };
+
+      const newSettings = {
+        accounts: currentSettings.accounts || [],
+        auto_retrieval: {
+          enabled: select("#prefs-auto-enabled")?.checked ?? true,
+          poll_interval_secs: parseInt(select("#prefs-poll-interval")?.value, 10) || 60,
+          codex_ttl_secs: parseInt(select("#prefs-codex-ttl")?.value, 10) || 180,
+          claude_ttl_secs: parseInt(select("#prefs-claude-ttl")?.value, 10) || 300,
+          antigravity_ttl_secs: parseInt(select("#prefs-antigravity-ttl")?.value, 10) || 90,
+        },
+      };
+
+      const res = await fetch("/v1/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newSettings),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || "Failed to save preferences");
+      }
+
       modal?.close();
       await refresh(true);
     } catch (err) {
@@ -1753,6 +1969,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupNavigation();
   setupAccountModal();
   setupDiscoverModal();
+  setupPreferencesModal();
   select("#refresh-button")?.addEventListener("click", () => refresh(true));
   refresh();
   setupEventSource();

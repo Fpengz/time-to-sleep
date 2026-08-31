@@ -33,6 +33,7 @@
           <time id="last-updated">Waiting for first sync</time>
           <button id="discover-btn" class="button button-secondary" type="button" title="Auto-discover accounts on disk">🔍 Discover</button>
           <button id="manage-accounts-btn" class="button button-secondary" type="button">Manage Accounts</button>
+          <button id="preferences-btn" class="button button-secondary" type="button">⚙ Preferences</button>
           <button id="theme-toggle" class="icon-button" type="button" aria-label="Switch color theme">
             <span aria-hidden="true">◐</span>
           </button>
@@ -203,9 +204,59 @@
                   <input type="number" id="acc-critical" min="1" max="100" value="95" required>
                 </div>
               </div>
+              <div class="form-group checkbox-group" style="display: flex; align-items: center; gap: 8px; margin-top: 8px;">
+                <input type="checkbox" id="acc-auto-retrieval" checked style="width: auto; margin: 0;">
+                <label for="acc-auto-retrieval" style="margin: 0; font-size: 0.85rem; cursor: pointer;">Auto-retrieve usage in background</label>
+              </div>
               <div class="modal-actions">
                 <button type="button" id="modal-cancel-btn" class="button button-secondary">Cancel</button>
                 <button type="submit" class="button button-action">Save Account</button>
+              </div>
+            </form>
+          </div>
+        </dialog>
+
+        <!-- Preferences Modal -->
+        <dialog id="preferences-modal" class="account-modal" aria-labelledby="prefs-title">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h3 id="prefs-title">Preferences</h3>
+              <button type="button" id="prefs-close-btn" class="icon-button modal-close" aria-label="Close">✕</button>
+            </div>
+            <form id="preferences-form">
+              <div class="form-group checkbox-group" style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+                <input type="checkbox" id="prefs-auto-enabled" checked style="width: auto; margin: 0;">
+                <label for="prefs-auto-enabled" style="margin: 0; font-weight: 600; cursor: pointer;">Enable Background Auto-Retrieval</label>
+              </div>
+              <div class="form-group">
+                <label for="prefs-poll-interval">Poll Interval</label>
+                <select id="prefs-poll-interval">
+                  <option value="30">30 seconds (Aggressive)</option>
+                  <option value="60">1 minute (Default)</option>
+                  <option value="120">2 minutes</option>
+                  <option value="300">5 minutes (Recommended for Claude)</option>
+                  <option value="600">10 minutes</option>
+                  <option value="900">15 minutes</option>
+                  <option value="1800">30 minutes</option>
+                </select>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="prefs-codex-ttl">Codex TTL (s)</label>
+                  <input type="number" id="prefs-codex-ttl" min="10" value="180" required>
+                </div>
+                <div class="form-group">
+                  <label for="prefs-claude-ttl">Claude TTL (s)</label>
+                  <input type="number" id="prefs-claude-ttl" min="10" value="300" required>
+                </div>
+                <div class="form-group">
+                  <label for="prefs-antigravity-ttl">AGY TTL (s)</label>
+                  <input type="number" id="prefs-antigravity-ttl" min="10" value="90" required>
+                </div>
+              </div>
+              <div class="modal-actions">
+                <button type="button" id="prefs-cancel-btn" class="button button-secondary">Cancel</button>
+                <button type="submit" class="button button-action">Save Preferences</button>
               </div>
             </form>
           </div>
