@@ -95,6 +95,7 @@ impl AntigravityProvider {
     }
 
     async fn find_server(&self) -> Option<LocalServer> {
+        // Fast path: probe cached server
         let cached_opt = { self.cached_server.lock().unwrap().clone() };
         if let Some(ref s) = cached_opt {
             if self.post_probe(s).await {
@@ -106,6 +107,9 @@ impl AntigravityProvider {
             *cached = None;
         }
 
+        // The language server is very often just not running (Antigravity isn't the
+        // user's active tool). Once we've confirmed that, skip the ps/lsof scan for a
+        // while instead of re-scanning every poll.
         {
             let last_not_found = *self.last_not_found.lock().unwrap();
             if let Some(seen_at) = last_not_found {
@@ -156,6 +160,8 @@ impl AntigravityProvider {
                 continue;
             }
 
+            // The real process passes `--csrf_token <value>` as two separate
+            // argv entries, not `--csrf_token=<value>`; handle both forms.
             let csrf_token = parts
                 .iter()
                 .position(|arg| *arg == "--csrf_token")
@@ -167,6 +173,7 @@ impl AntigravityProvider {
                         .find_map(|arg| arg.strip_prefix("--csrf_token=").map(|s| s.to_string()))
                 });
 
+            // Find listening ports via lsof
             let lsof_out = Command::new("lsof")
                 .args(["-nP", "-a", "-p", &pid.to_string(), "-iTCP", "-sTCP:LISTEN"])
                 .output()
