@@ -80,19 +80,9 @@ private func commandPressure(_ account: Account) -> Double {
 }
 
 private func commandFocusAccount(_ accounts: [Account]) -> Account? {
-    let live = accounts
+    accounts
         .filter { $0.status == "live" && $0.maxUsedPercent != nil }
         .sorted { commandPressure($0) < commandPressure($1) }
-    if let first = live.first { return first }
-
-    return accounts
-        .filter { $0.maxUsedPercent != nil }
-        .sorted {
-            let lhsLive = $0.status == "live" ? 0 : 1
-            let rhsLive = $1.status == "live" ? 0 : 1
-            if lhsLive != rhsLive { return lhsLive < rhsLive }
-            return commandPressure($0) < commandPressure($1)
-        }
         .first
 }
 
@@ -278,11 +268,22 @@ struct CommandMenuContentView: View {
             )
         } else {
             HStack(spacing: 10) {
-                ProgressView().controlSize(.small)
+                if monitor.accounts.isEmpty {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: "exclamationmark.circle")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(CommandPalette.warning)
+                }
+
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(monitor.accounts.isEmpty ? "Syncing accounts" : "No usable quota reading")
+                    Text(monitor.accounts.isEmpty ? "Syncing accounts" : "No live account is ready")
                         .font(.system(size: 11.5, weight: .semibold))
-                    Text("Time-to-Sleep needs at least one readable quota window to recommend an account.")
+                    Text(
+                        monitor.accounts.isEmpty
+                            ? "Reading provider quota windows before making a recommendation."
+                            : "Cached and stale readings stay visible below, but Time-to-Sleep will not recommend one until a provider reports live quota data."
+                    )
                         .font(.system(size: 9.5))
                         .foregroundColor(.secondary)
                 }
