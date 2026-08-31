@@ -228,6 +228,7 @@ struct PreferencesView: View {
                                 .foregroundColor(.secondary)
                             HStack(spacing: 6) {
                                 thresholdPill("WARN \(Int(acc.warning_threshold ?? 80))%", color: Palette.warn)
+                                thresholdPill("CRIT \(Int(acc.critical_threshold ?? 95))%", color: .red)
                                 thresholdPill(isAutoEnabled ? "AUTO-SYNC: ON" : "AUTO-SYNC: OFF", color: isAutoEnabled ? .green : .secondary)
                             }
                             .padding(.top, 1)
@@ -404,6 +405,11 @@ struct PreferencesView: View {
                 Text("Warning Threshold: \(Int(accWarning))%").font(.caption).fontWeight(.semibold)
                 Slider(value: $accWarning, in: 10...100, step: 5)
             }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Critical Threshold: \(Int(accCritical))%").font(.caption).fontWeight(.semibold)
+                Slider(value: $accCritical, in: max(10, accWarning)...100, step: 5)
+            }
             
             Toggle("Auto-Retrieve Usage in Background", isOn: $accAutoRetrieval)
                 .font(.subheadline)
@@ -423,6 +429,11 @@ struct PreferencesView: View {
         }
         .padding(20)
         .frame(width: 400)
+        .onChange(of: accWarning) { newValue in
+            if accCritical < newValue {
+                accCritical = newValue
+            }
+        }
     }
     
     private func thresholdPill(_ text: String, color: Color) -> some View {
@@ -566,16 +577,16 @@ struct PreferencesView: View {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let model = AccountConfigModel(
+        request.httpBody = try? JSONEncoder().encode(AccountConfigModel(
             id: accId.trimmingCharacters(in: .whitespaces),
             provider: accProvider,
             email: accEmail.trimmingCharacters(in: .whitespaces),
             home: accHome.trimmingCharacters(in: .whitespaces),
             priority: 0,
             warning_threshold: accWarning,
+            critical_threshold: max(accWarning, accCritical),
             auto_retrieval: accAutoRetrieval
-        )
-        request.httpBody = try? JSONEncoder().encode(model)
+        ))
         
         do {
             try await executeApiRequest(request, actionDescription: "Failed to save account")
@@ -620,7 +631,7 @@ struct PreferencesView: View {
         accEmail = account.email
         accHome = account.home
         accWarning = account.warning_threshold ?? 80
-        accCritical = 95
+        accCritical = max(accWarning, account.critical_threshold ?? 95)
         accAutoRetrieval = account.auto_retrieval ?? true
         isShowingAddSheet = true
     }
