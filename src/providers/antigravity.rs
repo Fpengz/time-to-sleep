@@ -86,7 +86,8 @@ impl AntigravityProvider {
         method: &str,
         body: &Value,
     ) -> Result<Value> {
-        if let Ok(val) = Self::try_post_grpc_json(&self.client, "http", server, method, body).await {
+        if let Ok(val) = Self::try_post_grpc_json(&self.client, "http", server, method, body).await
+        {
             return Ok(val);
         }
         // Try https fallback
