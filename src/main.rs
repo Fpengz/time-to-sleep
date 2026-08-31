@@ -84,7 +84,6 @@ fn build_services() -> (Arc<UsageService>, Arc<AnalyticsService>, Arc<HistorySto
     );
 
     let usage_service = Arc::new(UsageService::new(providers));
-    let analytics_service = Arc::new(AnalyticsService::new());
     let history_path = HistoryStore::default_path();
     let history_store = Arc::new(match HistoryStore::new(Some(&history_path)) {
         Ok(store) => store,
@@ -96,6 +95,16 @@ fn build_services() -> (Arc<UsageService>, Arc<AnalyticsService>, Arc<HistorySto
             HistoryStore::new(None).expect("failed to create in-memory history store")
         }
     });
+    let analytics_seed = match history_store.get_history(None, 24) {
+        Ok(points) => points,
+        Err(error) => {
+            eprintln!(
+                "warning: failed to seed analytics from persisted history: {error:#}; starting analytics with an empty in-memory history"
+            );
+            Vec::new()
+        }
+    };
+    let analytics_service = Arc::new(AnalyticsService::from_history(&analytics_seed));
 
     (usage_service, analytics_service, history_store)
 }
