@@ -159,6 +159,8 @@ pub struct AccountAnalytics {
     pub provider: ProviderName,
     pub current_percent: f64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limiting_window_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub burn_rate_per_hour: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub minutes_to_exhaustion: Option<i64>,
