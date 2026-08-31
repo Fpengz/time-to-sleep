@@ -45,7 +45,10 @@ async fn redesign_assets_are_embedded_and_served() {
             .unwrap_or_default();
 
         if uri.ends_with(".css") {
-            assert!(content_type.starts_with("text/css"), "{uri}: {content_type}");
+            assert!(
+                content_type.starts_with("text/css"),
+                "{uri}: {content_type}"
+            );
         } else {
             assert!(
                 content_type.starts_with("text/javascript")
