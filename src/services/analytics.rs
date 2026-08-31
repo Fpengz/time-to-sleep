@@ -3,12 +3,20 @@ use std::sync::Mutex;
 
 use chrono::{DateTime, Utc};
 
-use crate::domain::{AccountAnalytics, AccountStatus, AnalyticsResponse, Settings, UsageSnapshot};
+use crate::domain::{
+    AccountAnalytics, AccountStatus, AnalyticsResponse, HistoryPoint, Settings, UsageSnapshot,
+};
 
-type AccountHistoryMap = HashMap<String, Vec<(DateTime<Utc>, f64)>>;
+type WindowHistoryKey = (String, String);
+type WindowHistoryMap = HashMap<WindowHistoryKey, Vec<(DateTime<Utc>, f64)>>;
+
+const MAX_HISTORY_POINTS: usize = 60;
+const REPLACE_WITHIN_SECS: i64 = 10;
+const RESET_DROP_THRESHOLD: f64 = 5.0;
+const MIN_BURN_RATE_PER_HOUR: f64 = 0.1;
 
 pub struct AnalyticsService {
-    history: Mutex<AccountHistoryMap>,
+    history: Mutex<WindowHistoryMap>,
 }
 
 impl Default for AnalyticsService {
@@ -24,32 +32,108 @@ impl AnalyticsService {
         }
     }
 
+    pub fn from_history(points: &[HistoryPoint]) -> Self {
+        let mut histories: WindowHistoryMap = HashMap::new();
+        for point in points {
+            histories
+                .entry((point.account_id.clone(), point.window_id.clone()))
+                .or_default()
+                .push((point.observed_at, point.used_percent));
+        }
+
+        for history in histories.values_mut() {
+            history.sort_by(|a, b| a.0.cmp(&b.0));
+            Self::trim_history(history);
+        }
+
+        Self {
+            history: Mutex::new(histories),
+        }
+    }
+
+    fn trim_history(history: &mut Vec<(DateTime<Utc>, f64)>) {
+        if history.len() > MAX_HISTORY_POINTS {
+            let remove = history.len() - MAX_HISTORY_POINTS;
+            history.drain(0..remove);
+        }
+    }
+
     pub fn record_snapshot(&self, snapshot: &UsageSnapshot) {
         if snapshot.windows.is_empty() {
             return;
         }
-        let max_pct = snapshot
-            .windows
-            .iter()
-            .map(|w| w.used_percent)
-            .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-            .unwrap_or(0.0);
 
-        let ts = snapshot.retrieved_at.unwrap_or_else(Utc::now);
+        // Prefer the time at which the provider data was actually observed. A cached
+        // retrieval should not look like a fresh quota sample merely because it was read now.
+        let ts = snapshot
+            .observed_at
+            .or(snapshot.retrieved_at)
+            .unwrap_or_else(Utc::now);
 
         let mut hist_map = self.history.lock().unwrap();
-        let hist = hist_map.entry(snapshot.account_id.clone()).or_default();
+        for window in &snapshot.windows {
+            let hist = hist_map
+                .entry((snapshot.account_id.clone(), window.id.clone()))
+                .or_default();
 
-        if let Some(last) = hist.last_mut() {
-            if (ts - last.0).num_seconds().abs() < 10 {
-                *last = (ts, max_pct);
-                return;
+            if let Some(last) = hist.last_mut() {
+                let delta_secs = (ts - last.0).num_seconds();
+                if delta_secs.abs() < REPLACE_WITHIN_SECS {
+                    *last = (ts, window.used_percent);
+                    continue;
+                }
+                if delta_secs < 0 {
+                    // Ignore stale cached observations that predate the newest known point.
+                    continue;
+                }
             }
+
+            hist.push((ts, window.used_percent));
+            Self::trim_history(hist);
         }
-        hist.push((ts, max_pct));
-        if hist.len() > 60 {
-            hist.remove(0);
+    }
+
+    fn velocity(
+        history: &[(DateTime<Utc>, f64)],
+        current_pct: f64,
+    ) -> (Option<f64>, Option<i64>) {
+        if history.len() < 2 {
+            return (None, None);
         }
+
+        // A meaningful downward jump indicates that the quota window reset. Only derive
+        // velocity from samples after the most recent reset instead of averaging across it.
+        let segment_start = history
+            .windows(2)
+            .rposition(|pair| pair[1].1 + RESET_DROP_THRESHOLD < pair[0].1)
+            .map(|index| index + 1)
+            .unwrap_or(0);
+        let segment = &history[segment_start..];
+        if segment.len() < 2 {
+            return (None, None);
+        }
+
+        let (first_ts, first_pct) = segment[0];
+        let (last_ts, last_pct) = *segment.last().unwrap();
+        let delta_sec = (last_ts - first_ts).num_seconds() as f64;
+        if delta_sec < 60.0 {
+            return (None, None);
+        }
+
+        let rate = (last_pct - first_pct) / (delta_sec / 3600.0);
+        if rate <= MIN_BURN_RATE_PER_HOUR {
+            return (None, None);
+        }
+
+        let rounded_rate = (rate * 100.0).round() / 100.0;
+        let remaining = (100.0 - current_pct).max(0.0);
+        let minutes_to_exhaustion = if remaining > 0.0 {
+            Some((((remaining / rounded_rate) * 60.0).round() as i64).max(1))
+        } else {
+            None
+        };
+
+        (Some(rounded_rate), minutes_to_exhaustion)
     }
 
     pub fn analyze(
@@ -75,49 +159,40 @@ impl AnalyticsService {
         struct EvalItem<'a> {
             snapshot: &'a UsageSnapshot,
             current_pct: f64,
+            limiting_window_id: Option<String>,
             burn_rate: Option<f64>,
             minutes_to_exhaust: Option<i64>,
         }
 
         let mut evaluated = Vec::with_capacity(snapshots.len());
         for s in snapshots {
-            let current_pct = s
-                .windows
-                .iter()
-                .map(|w| w.used_percent)
-                .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                .unwrap_or(0.0);
+            let limiting_window = s.windows.iter().max_by(|a, b| {
+                a.used_percent
+                    .partial_cmp(&b.used_percent)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
 
-            let hist = hist_map.get(&s.account_id);
-            let mut burn_rate = None;
-            let mut minutes_to_exhaust = None;
-
-            if let Some(h) = hist {
-                if h.len() >= 2 {
-                    let (first_ts, first_pct) = h[0];
-                    let (last_ts, last_pct) = *h.last().unwrap();
-                    let delta_sec = (last_ts - first_ts).num_seconds() as f64;
-                    if delta_sec >= 60.0 {
-                        let delta_hours = delta_sec / 3600.0;
-                        let delta_pct = last_pct - first_pct;
-                        let rate = delta_pct / delta_hours;
-                        if rate > 0.1 {
-                            let rounded_rate = (rate * 100.0).round() / 100.0;
-                            burn_rate = Some(rounded_rate);
-                            let remaining = 100.0 - current_pct;
-                            if remaining > 0.0 {
-                                minutes_to_exhaust = Some(
-                                    (((remaining / rounded_rate) * 60.0).round() as i64).max(1),
-                                );
-                            }
-                        }
-                    }
-                }
-            }
+            let (current_pct, limiting_window_id, burn_rate, minutes_to_exhaust) =
+                if let Some(window) = limiting_window {
+                    let key = (s.account_id.clone(), window.id.clone());
+                    let (burn_rate, minutes_to_exhaust) = hist_map
+                        .get(&key)
+                        .map(|history| Self::velocity(history, window.used_percent))
+                        .unwrap_or((None, None));
+                    (
+                        window.used_percent,
+                        Some(window.id.clone()),
+                        burn_rate,
+                        minutes_to_exhaust,
+                    )
+                } else {
+                    (0.0, None, None, None)
+                };
 
             evaluated.push(EvalItem {
                 snapshot: s,
                 current_pct,
+                limiting_window_id,
                 burn_rate,
                 minutes_to_exhaust,
             });
@@ -201,6 +276,7 @@ impl AnalyticsService {
                     account_id: item.snapshot.account_id.clone(),
                     provider: item.snapshot.provider,
                     current_percent: item.current_pct,
+                    limiting_window_id: item.limiting_window_id,
                     burn_rate_per_hour: item.burn_rate,
                     minutes_to_exhaustion: item.minutes_to_exhaust,
                     status: item.snapshot.status,
