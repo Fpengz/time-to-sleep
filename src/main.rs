@@ -130,7 +130,13 @@ async fn fetch_usage_remote_or_local(port: u16, force_refresh: bool) -> Vec<Usag
     let settings = load_settings();
     let (usage_service, _, history_store) = build_services();
     let snapshots = usage_service.collect(&settings, force_refresh).await;
-    let _ = history_store.record_snapshots(&snapshots);
+    let snapshots_to_record = snapshots.clone();
+    let store = history_store.clone();
+    match tokio::task::spawn_blocking(move || store.record_snapshots(&snapshots_to_record)).await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => eprintln!("warning: failed to persist usage history: {error:#}"),
+        Err(error) => eprintln!("warning: history persistence task failed: {error}"),
+    }
     snapshots
 }
 
@@ -215,7 +221,6 @@ async fn main() -> Result<()> {
             }
         }
         None => {
-            // Default: start serve
             let settings = Arc::new(RwLock::new(load_settings()));
             let (usage_service, analytics_service, history_store) = build_services();
             let broadcaster = Arc::new(EventBroadcaster::new());
