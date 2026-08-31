@@ -84,11 +84,12 @@ fn build_services() -> (Arc<UsageService>, Arc<AnalyticsService>, Arc<HistorySto
     );
 
     let usage_service = Arc::new(UsageService::new(providers));
-    let analytics_service = Arc::new(AnalyticsService::new());
     let history_store = Arc::new(
         HistoryStore::new(Some(&HistoryStore::default_path()))
             .unwrap_or_else(|_| HistoryStore::new(None).unwrap()),
     );
+    let analytics_seed = history_store.get_history(None, 24).unwrap_or_default();
+    let analytics_service = Arc::new(AnalyticsService::from_history(&analytics_seed));
 
     (usage_service, analytics_service, history_store)
 }
