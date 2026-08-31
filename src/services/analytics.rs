@@ -93,10 +93,7 @@ impl AnalyticsService {
         }
     }
 
-    fn velocity(
-        history: &[(DateTime<Utc>, f64)],
-        current_pct: f64,
-    ) -> (Option<f64>, Option<i64>) {
+    fn velocity(history: &[(DateTime<Utc>, f64)], current_pct: f64) -> (Option<f64>, Option<i64>) {
         if history.len() < 2 {
             return (None, None);
         }
@@ -155,7 +152,6 @@ impl AnalyticsService {
 
         let hist_map = self.history.lock().unwrap();
 
-        // 1. Evaluate metrics
         struct EvalItem<'a> {
             snapshot: &'a UsageSnapshot,
             current_pct: f64,
@@ -198,7 +194,6 @@ impl AnalyticsService {
             });
         }
 
-        // 2. Classify healthy alternatives and high usage
         let mut healthy_alternatives = Vec::new();
         let mut high_usage_accounts = Vec::new();
 
@@ -225,7 +220,6 @@ impl AnalyticsService {
             }
         }
 
-        // 3. Generate suggestions
         let mut suggestions = Vec::new();
         for (acc_id, prov, curr_pct) in &high_usage_accounts {
             let prov_name = prov.display_name();
@@ -257,7 +251,6 @@ impl AnalyticsService {
             }
         }
 
-        // 4. Determine recommendation
         let recommended_id = healthy_alternatives
             .iter()
             .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal))
