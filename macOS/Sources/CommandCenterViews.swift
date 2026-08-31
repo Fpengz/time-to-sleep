@@ -23,12 +23,6 @@ private enum CommandPalette {
         }
     }
 
-    static func usage(_ percent: Double) -> Color {
-        if percent >= 90 { return danger }
-        if percent >= 75 { return warning }
-        return accent
-    }
-
     static func status(_ status: String) -> Color {
         switch status {
         case "live": return live
@@ -484,6 +478,12 @@ private struct CommandWindowRow: View {
     let window: UsageWindow
     let accent: Color
 
+    private var barColor: Color {
+        if window.used_percent >= 90 { return CommandPalette.danger }
+        if window.used_percent >= 75 { return CommandPalette.warning }
+        return accent
+    }
+
     var body: some View {
         VStack(spacing: 5) {
             HStack {
@@ -504,7 +504,7 @@ private struct CommandWindowRow: View {
                     Capsule()
                         .fill(Color.secondary.opacity(0.12))
                     Capsule()
-                        .fill(CommandPalette.usage(window.used_percent))
+                        .fill(barColor)
                         .frame(
                             width: max(
                                 3,
