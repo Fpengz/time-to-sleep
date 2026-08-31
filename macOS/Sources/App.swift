@@ -19,9 +19,9 @@ struct TimeToSleepApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            MenuContentView(monitor: monitor)
+            CommandMenuContentView(monitor: monitor)
         } label: {
-            MenuBarLabel(monitor: monitor)
+            CommandMenuBarLabel(monitor: monitor)
         }
         .menuBarExtraStyle(.window)
     }
