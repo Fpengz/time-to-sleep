@@ -198,7 +198,10 @@ pub async fn history_handler(
     })?
     .map_err(|error| {
         tracing::error!(%error, "failed to query usage history");
-        ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "Failed to query usage history")
+        ApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Failed to query usage history",
+        )
     })?;
 
     Ok(Json(points))
