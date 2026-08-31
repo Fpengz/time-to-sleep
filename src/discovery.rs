@@ -35,6 +35,7 @@ pub fn discover_accounts(existing_ids: &[&str]) -> Vec<AccountConfig> {
                 home: "~/.codex".to_string(),
                 priority: 0,
                 warning_threshold: 80.0,
+                critical_threshold: 95.0,
                 auto_retrieval: true,
             });
         }
@@ -62,6 +63,7 @@ pub fn discover_accounts(existing_ids: &[&str]) -> Vec<AccountConfig> {
                 home: "~".to_string(),
                 priority: 0,
                 warning_threshold: 80.0,
+                critical_threshold: 95.0,
                 auto_retrieval: true,
             });
         }
@@ -89,6 +91,7 @@ pub fn discover_accounts(existing_ids: &[&str]) -> Vec<AccountConfig> {
                 home: "~/.gemini/antigravity-cli".to_string(),
                 priority: 0,
                 warning_threshold: 80.0,
+                critical_threshold: 95.0,
                 auto_retrieval: true,
             });
         }

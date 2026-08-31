@@ -15,8 +15,14 @@ class UsageMonitor: ObservableObject {
     /// decoding it on every background tick otherwise.
     var popoverVisible: Bool = false
 
+    private struct AlertThresholds {
+        let warning: Double
+        let critical: Double
+    }
+
     private var timer: Timer?
     private var previousUsageLevels: [String: Double] = [:]
+    private var accountAlertThresholds: [String: AlertThresholds] = [:]
     private var hasInitializedLevels: Bool = false
     private var cachedPort: Int?
     
@@ -66,6 +72,15 @@ class UsageMonitor: ObservableObject {
         let intervalChanged = self.autoRetrieval.poll_interval_secs != settings.auto_retrieval.poll_interval_secs
         let enabledChanged = self.autoRetrieval.enabled != settings.auto_retrieval.enabled
         self.autoRetrieval = settings.auto_retrieval
+        self.accountAlertThresholds = Dictionary(uniqueKeysWithValues: settings.accounts.map { account in
+            (
+                account.id,
+                AlertThresholds(
+                    warning: account.warning_threshold ?? 80.0,
+                    critical: account.critical_threshold ?? 95.0
+                )
+            )
+        })
         if intervalChanged || enabledChanged || timer == nil {
             self.setupTimer(interval: settings.auto_retrieval.poll_interval_secs, enabled: settings.auto_retrieval.enabled)
         }
@@ -110,21 +125,23 @@ class UsageMonitor: ObservableObject {
         guard let url = URL(string: endpoint) else { return }
         
         do {
-            async let usageTask = URLSession.shared.data(from: url)
-            async let historyTask: [HistoryPointModel]? = popoverVisible ? fetchHistoryPoints(port: port) : nil
+            let (data, response) = try await URLSession.shared.data(from: url)
+            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+                throw URLError(.badServerResponse)
+            }
+            let usageResponse = try Self.jsonDecoder.decode(UsageResponse.self, from: data)
 
-            let (data, _) = try await usageTask
-            let response = try Self.jsonDecoder.decode(UsageResponse.self, from: data)
+            checkThresholdsAndNotify(newAccounts: usageResponse.accounts)
 
-            checkThresholdsAndNotify(newAccounts: response.accounts)
-
-            self.accounts = response.accounts
-            self.needsAttention = response.accounts.contains {
+            self.accounts = usageResponse.accounts
+            self.needsAttention = usageResponse.accounts.contains {
                 $0.status != "live"
             }
             self.lastFetchError = nil
 
-            if let points = await historyTask {
+            // /v1/usage persists the newest provider observation. Fetch history only after
+            // that request completes so visible sparklines cannot lag by one refresh.
+            if popoverVisible, let points = await fetchHistoryPoints(port: port) {
                 var grouped: [String: [HistoryPointModel]] = [:]
                 for p in points {
                     grouped[p.account_id, default: []].append(p)
@@ -140,7 +157,10 @@ class UsageMonitor: ObservableObject {
     private func fetchHistoryPoints(port: Int) async -> [HistoryPointModel]? {
         guard let url = URL(string: "http://127.0.0.1:\(port)/v1/history?hours=24") else { return nil }
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
+            let (data, response) = try await URLSession.shared.data(from: url)
+            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+                return nil
+            }
             return try Self.jsonDecoder.decode([HistoryPointModel].self, from: data)
         } catch {
             return nil
@@ -150,21 +170,20 @@ class UsageMonitor: ObservableObject {
     private func checkThresholdsAndNotify(newAccounts: [Account]) {
         for account in newAccounts {
             guard let windows = account.windows else { continue }
+            let thresholds = accountAlertThresholds[account.account_id]
+                ?? AlertThresholds(warning: 80.0, critical: 95.0)
             for window in windows {
                 let key = "\(account.account_id):\(window.id)"
                 let currentPct = window.used_percent
                 let prevPct = previousUsageLevels[key]
                 
                 if let prev = prevPct, hasInitializedLevels {
-                    // Alert when crossing 95%
-                    if currentPct >= 95.0 && prev < 95.0 {
+                    if currentPct >= thresholds.critical && prev < thresholds.critical {
                         sendNotification(
                             title: "Time-to-Sleep: Critical Quota Warning",
                             body: "\(account.provider.capitalized) (\(account.configured_email ?? account.account_id)) is at \(Int(round(currentPct)))%."
                         )
-                    }
-                    // Alert when crossing 80%
-                    else if currentPct >= 80.0 && prev < 80.0 {
+                    } else if currentPct >= thresholds.warning && prev < thresholds.warning {
                         sendNotification(
                             title: "Time-to-Sleep: Quota Warning",
                             body: "\(account.provider.capitalized) (\(account.configured_email ?? account.account_id)) reached \(Int(round(currentPct)))%."
