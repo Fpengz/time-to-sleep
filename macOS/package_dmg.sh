@@ -20,4 +20,7 @@ hdiutil create -volname "$APP_NAME" -srcfolder "$STAGING_DIR" -ov -format UDZO "
 # Clean up
 rm -rf "$STAGING_DIR"
 
+# Code sign DMG
+codesign --force --sign - "$DMG_NAME"
+
 echo "✅ Created macOS DMG at macOS/$DMG_NAME"
