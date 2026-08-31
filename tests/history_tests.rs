@@ -49,16 +49,12 @@ fn test_history_store_deduplication_and_ranges() {
         now - Duration::minutes(10),
         25.0,
     );
-    let snap2 = snapshot(
-        now - Duration::minutes(8),
-        now - Duration::minutes(8),
-        25.0,
-    );
+    let snap2 = snapshot(now - Duration::minutes(8), now - Duration::minutes(8), 25.0);
 
     store.record_snapshots(&[snap1, snap2]).unwrap();
 
     let history = store.get_history(Some("codex-primary"), 24).unwrap();
-    assert_eq!(history.len(), 1); // second snapshot deduplicated
+    assert_eq!(history.len(), 1);
     assert_eq!(history[0].used_percent, 25.0);
 
     let heatmap = store.get_hourly_heatmap(Some("codex-primary"), 7).unwrap();
