@@ -1,37 +1,7 @@
 import SwiftUI
 import AppKit
 
-private enum CommandPalette {
-    static let accent = Color(hex: 0xB7F36B)
-    static let codex = Color(hex: 0x66C7E8)
-    static let codexSecondary = Color(hex: 0x9F9AEF)
-    static let claude = Color(hex: 0xEF9D69)
-    static let antigravity = Color(hex: 0xB7F36B)
-    static let live = Color(hex: 0x74D99F)
-    static let warning = Color(hex: 0xF0B35D)
-    static let danger = Color(hex: 0xEF756D)
-
-    static func provider(_ account: Account) -> Color {
-        switch account.provider.lowercased() {
-        case "codex":
-            return (account.account_id.contains("secondary") || account.account_id.contains("-2"))
-                ? codexSecondary
-                : codex
-        case "claude": return claude
-        case "antigravity": return antigravity
-        default: return accent
-        }
-    }
-
-    static func status(_ status: String) -> Color {
-        switch status {
-        case "live": return live
-        case "cached", "stale": return warning
-        case "rate_limited", "unavailable": return danger
-        default: return .secondary
-        }
-    }
-}
+private typealias CommandPalette = Palette
 
 private func commandProviderLabel(_ provider: String) -> String {
     switch provider.lowercased() {
@@ -134,6 +104,14 @@ struct CommandMenuContentView: View {
         commandFocusAccount(monitor.accounts)
     }
 
+    private var contentHeight: CGFloat {
+        if monitor.accounts.isEmpty {
+            return 140
+        }
+        let estimated = 120 + CGFloat(monitor.accounts.count) * 95
+        return min(540, max(220, estimated))
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
@@ -154,8 +132,9 @@ struct CommandMenuContentView: View {
                     }
                 }
                 .padding(14)
+                .frame(width: 388, alignment: .leading)
             }
-            .frame(maxHeight: 560)
+            .frame(width: 388, height: contentHeight)
 
             Divider().opacity(0.65)
             footer
@@ -252,6 +231,7 @@ struct CommandMenuContentView: View {
                 .frame(width: 82)
             }
             .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 14)
                     .fill(Color(NSColor.controlBackgroundColor).opacity(0.52))
@@ -442,6 +422,7 @@ private struct CommandAccountRow: View {
             }
         }
         .padding(11)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 12)
                 .fill(Color(NSColor.controlBackgroundColor).opacity(isFocus ? 0.64 : 0.42))
