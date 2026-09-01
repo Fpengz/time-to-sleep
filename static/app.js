@@ -1,7 +1,7 @@
 const THEME_KEY = "time-to-sleep-theme";
 const THEME_COLORS = {
-  dark: "#0f1413",
-  light: "#eee9df",
+  dark: "#090b0a",
+  light: "#f3f5f0",
 };
 const state = {
   snapshots: [],
@@ -1146,24 +1146,23 @@ async function cancelSetup(setup = state.setup) {
 }
 
 const providerColors = {
-  codex: "#38bdf8",
-  claude: "#f97316",
-  antigravity: "#d6f66c",
+  codex: "#66c7e8",
+  claude: "#ef9d69",
+  antigravity: "#b7f36b",
 };
 
 function getSeriesColor(provider, accountId, windowId) {
   if (provider === "codex") {
-    if (accountId && (accountId.includes("secondary") || accountId.includes("-2"))) return "#818cf8";
-    return "#38bdf8";
+    if (accountId && (accountId.includes("secondary") || accountId.includes("-2"))) return "#9f9aef";
+    return "#66c7e8";
   }
   if (provider === "claude") {
-    if (windowId === "seven_day") return "#ea580c";
-    return "#f97316";
+    return "#ef9d69";
   }
   if (provider === "antigravity") {
-    return "#d6f66c";
+    return "#b7f36b";
   }
-  return providerColors[provider] || "#a78bfa";
+  return providerColors[provider] || "#b7f36b";
 }
 
 function getAccountColor(account) {

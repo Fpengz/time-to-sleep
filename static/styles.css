@@ -5,45 +5,45 @@
 
 :root {
   /* Dark Theme (Default) */
-  --bg: #090d16;
-  --bg-veil-1: rgba(56, 189, 248, 0.05);
-  --bg-veil-2: rgba(99, 102, 241, 0.045);
+  --bg: #090b0a;
+  --bg-veil-1: transparent;
+  --bg-veil-2: transparent;
 
-  --surface: #0f172a;
-  --surface-2: #141f36;
-  --surface-3: #1e293b;
-  --surface-inset: #090e1a;
+  --surface: #111412;
+  --surface-2: #161a17;
+  --surface-3: #1c211d;
+  --surface-inset: #0c0f0d;
 
-  --text: #e2e8f0;
-  --text-strong: #f8fafc;
-  --muted: #94a3b8;
-  --faint: #64748b;
+  --text: #d8ded9;
+  --text-strong: #f5f8f5;
+  --muted: #8b968e;
+  --faint: #626d65;
 
-  --line: #1e293b;
-  --line-soft: rgba(255, 255, 255, 0.07);
-  --line-strong: #334155;
+  --line: #242a25;
+  --line-soft: rgba(255, 255, 255, 0.055);
+  --line-strong: #343c35;
 
-  --accent: #38bdf8;
-  --accent-strong: #60a5fa;
-  --accent-dim: rgba(56, 189, 248, 0.12);
-  --accent-line: rgba(56, 189, 248, 0.28);
-  --on-accent: #090d16;
+  --accent: #b7f36b;
+  --accent-strong: #8fd34f;
+  --accent-dim: rgba(183, 243, 107, 0.09);
+  --accent-line: rgba(183, 243, 107, 0.30);
+  --on-accent: #10160b;
 
-  --positive: #10b981;
-  --warning: #f59e0b;
-  --danger: #ef4444;
-  --info: #38bdf8;
+  --positive: #74d99f;
+  --warning: #f0b35d;
+  --danger: #ef756d;
+  --info: #73c7ff;
 
   /* Provider Colors */
-  --p-codex: #38bdf8;
-  --p-codex-2: #818cf8;
-  --p-claude: #f97316;
-  --p-antigravity: #10b981;
+  --p-codex: #66c7e8;
+  --p-codex-2: #9f9aef;
+  --p-claude: #ef9d69;
+  --p-antigravity: #b7f36b;
 
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
-  --shadow-md: 0 8px 24px -6px rgba(0, 0, 0, 0.45);
-  --shadow-lg: 0 20px 40px -12px rgba(0, 0, 0, 0.6);
-  --glow: 0 0 0 1px var(--accent-line), 0 8px 24px -4px rgba(56, 189, 248, 0.25);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.28);
+  --shadow-md: 0 10px 28px rgba(0, 0, 0, 0.24);
+  --shadow-lg: 0 24px 56px rgba(0, 0, 0, 0.36);
+  --glow: 0 0 0 1px var(--accent-line), 0 18px 38px rgba(122, 173, 65, 0.12);
 
   --display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", "Segoe UI", Roboto, sans-serif;
   --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -59,44 +59,44 @@
 }
 
 :root[data-theme="light"] {
-  --bg: #f8fafc;
-  --bg-veil-1: rgba(56, 189, 248, 0.04);
-  --bg-veil-2: rgba(99, 102, 241, 0.03);
+  --bg: #f3f5f0;
+  --bg-veil-1: transparent;
+  --bg-veil-2: transparent;
 
   --surface: #ffffff;
-  --surface-2: #f1f5f9;
-  --surface-3: #e2e8f0;
-  --surface-inset: #f8fafc;
+  --surface-2: #f7f8f4;
+  --surface-3: #edf0e9;
+  --surface-inset: #eef1ea;
 
-  --text: #334155;
-  --text-strong: #0f172a;
-  --muted: #64748b;
-  --faint: #94a3b8;
+  --text: #334038;
+  --text-strong: #111913;
+  --muted: #69756d;
+  --faint: #96a099;
 
-  --line: #e2e8f0;
-  --line-soft: rgba(15, 23, 42, 0.06);
-  --line-strong: #cbd5e1;
+  --line: #dfe4dc;
+  --line-soft: rgba(17, 25, 19, 0.055);
+  --line-strong: #cbd2c9;
 
-  --accent: #0284c7;
-  --accent-strong: #0369a1;
-  --accent-dim: rgba(2, 132, 199, 0.08);
-  --accent-line: rgba(2, 132, 199, 0.24);
+  --accent: #5c8f23;
+  --accent-strong: #426d16;
+  --accent-dim: rgba(92, 143, 35, 0.08);
+  --accent-line: rgba(92, 143, 35, 0.28);
   --on-accent: #ffffff;
 
-  --positive: #059669;
-  --warning: #d97706;
-  --danger: #dc2626;
-  --info: #0284c7;
+  --positive: #2f8d5b;
+  --warning: #b87523;
+  --danger: #c55049;
+  --info: #337da9;
 
-  --p-codex: #0284c7;
-  --p-codex-2: #4f46e5;
-  --p-claude: #ea580c;
-  --p-antigravity: #059669;
+  --p-codex: #2c86a7;
+  --p-codex-2: #6863bd;
+  --p-claude: #c86d3d;
+  --p-antigravity: #5c8f23;
 
-  --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
-  --shadow-md: 0 10px 25px -5px rgba(15, 23, 42, 0.08), 0 8px 10px -6px rgba(15, 23, 42, 0.04);
-  --shadow-lg: 0 20px 30px -10px rgba(15, 23, 42, 0.12);
-  --glow: 0 0 0 1px var(--accent-line), 0 10px 25px -5px rgba(2, 132, 199, 0.2);
+  --shadow-sm: 0 1px 2px rgba(17, 25, 19, 0.06);
+  --shadow-md: 0 12px 30px rgba(17, 25, 19, 0.07);
+  --shadow-lg: 0 24px 50px rgba(17, 25, 19, 0.12);
+  --glow: 0 0 0 1px var(--accent-line), 0 10px 25px -5px rgba(92, 143, 35, 0.2);
 
   color-scheme: light;
 }

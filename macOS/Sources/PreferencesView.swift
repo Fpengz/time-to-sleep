@@ -56,7 +56,7 @@ struct PreferencesView: View {
                     .overlay(
                         Image(systemName: "gearshape.fill")
                             .font(.system(size: 13, weight: .bold))
-                            .foregroundColor(Color(NSColor.windowBackgroundColor))
+                            .foregroundColor(Palette.onAccent)
                     )
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Preferences")
@@ -83,7 +83,7 @@ struct PreferencesView: View {
             if let error = errorMessage {
                 HStack {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(.red)
+                        .foregroundColor(Palette.danger)
                     Text(error)
                         .font(.caption)
                     Spacer()
@@ -91,13 +91,13 @@ struct PreferencesView: View {
                         .font(.caption)
                 }
                 .padding(8)
-                .background(Color.red.opacity(0.1))
+                .background(Palette.danger.opacity(0.1))
             }
             
             if let success = successMessage {
                 HStack {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.green)
+                        .foregroundColor(Palette.live)
                     Text(success)
                         .font(.caption)
                     Spacer()
@@ -105,7 +105,7 @@ struct PreferencesView: View {
                         .font(.caption)
                 }
                 .padding(8)
-                .background(Color.green.opacity(0.1))
+                .background(Palette.live.opacity(0.1))
             }
             
             // Tab Content
@@ -228,8 +228,8 @@ struct PreferencesView: View {
                                 .foregroundColor(.secondary)
                             HStack(spacing: 6) {
                                 thresholdPill("WARN \(Int(acc.warning_threshold ?? 80))%", color: Palette.warn)
-                                thresholdPill("CRIT \(Int(acc.critical_threshold ?? 95))%", color: .red)
-                                thresholdPill(isAutoEnabled ? "AUTO-SYNC: ON" : "AUTO-SYNC: OFF", color: isAutoEnabled ? .green : .secondary)
+                                thresholdPill("CRIT \(Int(acc.critical_threshold ?? 95))%", color: Palette.danger)
+                                thresholdPill(isAutoEnabled ? "AUTO-SYNC: ON" : "AUTO-SYNC: OFF", color: isAutoEnabled ? Palette.live : .secondary)
                             }
                             .padding(.top, 1)
                         }

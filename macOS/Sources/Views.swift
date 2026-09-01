@@ -17,23 +17,32 @@ extension Color {
 
 enum Palette {
     // Matches the web dashboard's --accent so the two surfaces read as one product.
-    static let accent = Color(hex: 0x38BDF8)
-    static let codex = Color(hex: 0x38AECB)
-    static let codexSecondary = Color(hex: 0x7B78E0)
-    static let claude = Color(hex: 0xE08A45)
-    static let antigravity = Color(hex: 0xD6F66C)
+    static let accent = Color(hex: 0xB7F36B)
+    static let accentStrong = Color(hex: 0x8FD34F)
+    static let onAccent = Color(hex: 0x10160B)
 
-    static let live = Color(hex: 0x53A867)
-    static let warn = Color(hex: 0xD08A3C)
-    static let danger = Color(hex: 0xD05A50)
+    static let codex = Color(hex: 0x66C7E8)
+    static let codexSecondary = Color(hex: 0x9F9AEF)
+    static let claude = Color(hex: 0xEF9D69)
+    static let antigravity = Color(hex: 0xB7F36B)
 
-    static func provider(_ provider: String, id: String) -> Color {
+    static let live = Color(hex: 0x74D99F)
+    static let warn = Color(hex: 0xF0B35D)
+    static let warning = warn
+    static let danger = Color(hex: 0xEF756D)
+    static let info = Color(hex: 0x73C7FF)
+
+    static func provider(_ provider: String, id: String = "") -> Color {
         switch provider.lowercased() {
         case "codex": return (id.contains("secondary") || id.contains("-2")) ? codexSecondary : codex
         case "claude": return claude
         case "antigravity": return antigravity
         default: return accent
         }
+    }
+
+    static func provider(_ account: Account) -> Color {
+        provider(account.provider, id: account.account_id)
     }
 
     static func status(_ status: String) -> Color {
